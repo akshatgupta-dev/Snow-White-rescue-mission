@@ -7,7 +7,7 @@ SCENE_LIBRARY = "library"
 SCENE_AGORA = "agora_hall"
 SCENE_CAFETERIA = "cafeteria"
 SCENE_BEAR_BRIDGE = "bear_bridge"
-SCENE_KIRJUONLUONTO = "kirjuonluonto"
+SCENE_KIRJURINLUOTO = "kirjurinluoto"
 SCENE_FINAL = "final"
 
 
@@ -16,12 +16,12 @@ ITEM_MAP = "map"
 ITEM_LIGHTSABER = "lightsaber"
 ITEM_PUMPKIN = "pumpkin"
 ITEM_APPLE = "apple"
-
+ITEM_CARRIAGE = "carriage"
 
 
 # char names
 CHAR_CINDERELLA = "Cinderella"
-CHAR_SNOW_WHITE = "Snoe White"
+CHAR_SNOW_WHITE = "Snow White"
 CHAR_EVIL_QUEEN = "Evil Queen"
 CHAR_BEAR = "Bear"
 
@@ -34,6 +34,9 @@ STATE_BEAR_ALLOWED_PASSAGE  = "bear_allowed_passage"
 STATE_QUEEN_DEFEATED = "queen_defeated"
 STATE_SNOW_WHITE_RESCUED = "snow_white_rescued"
 STATE_ATE_APPLE = "ate_apple"
+
+STATE_HAS_CARRIAGE = "has_carriage"
+
 
 
 @dataclass
@@ -58,12 +61,19 @@ def create_new_game():
             STATE_QUEEN_DEFEATED: False,
             STATE_SNOW_WHITE_RESCUED: False,
             STATE_ATE_APPLE: False,
+            STATE_HAS_CARRIAGE: False,
         } # at the sart the player has not accomplished anything so everything is set to false
     )
     
 def add_item(state, item): # adding items into the inventory
     if item not in state.inventory:
         state.inventory.append(item)
+        
+def remove_item(state, item): # removing items from the inventory
+    if item in state.inventory:
+        state.inventory.remove(item)
+        return True
+    return False
         
 def has_item(state, item): # seeing what items are in the inventory
     return item in state.inventory
@@ -74,3 +84,14 @@ def set_flag(state, flag_name, value=True): # for changing flag value
     
 def get_flag(state, flag_name): #read flag value
     return state.flags.get(flag_name, False)
+
+
+def transform_item(state, old_item, new_item, flag_name=None): # for transforming items in the inventory
+    if old_item in state.inventory:
+        state.inventory.remove(old_item)
+        if new_item not in state.inventory:
+            state.inventory.append(new_item)
+        if flag_name:
+            state.flags[flag_name] = True
+        return True
+    return False
