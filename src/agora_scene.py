@@ -8,6 +8,9 @@ the full game flow.
 from pipeline.game_foundation import (
     SCENE_AGORA,
     ITEM_LIGHTSABER,
+    STATE_HAS_LIGHTSABER,
+    add_item,
+    set_flag,
     has_item,
 )
 
@@ -96,9 +99,15 @@ class AgoraHallScene:
                         "you try very hard not to laugh."
                     )
                 if choice == "2":
+                    add_item(state, ITEM_LIGHTSABER)
+                    set_flag(state, STATE_HAS_LIGHTSABER, True)
                     return (
-                        "You step toward the lightsaber stand while Doc exhales "
-                        "in dramatic defeat."
+                        "You step toward the lightsaber stand. After a long, "
+                        "awkward silence, Doc admits defeat and presents the "
+                        "lightsaber with both hands.\n\n"
+                        "'Fair shot,' he says. 'You earned it.'\n\n"
+                        "Cinderella takes the weapon. Agora Hall has nothing "
+                        "left to guard from her now."
                     )
                 return "Invalid choice. Pick 1 or 2."
 
@@ -154,6 +163,9 @@ class AgoraHallScene:
 
     def _resolve_rally_choice(self, choice):
         """Resolve one tactical choice during the badminton rally."""
+        if choice not in {"1", "2", "3"}:
+            return "Invalid shot choice. Pick 1, 2, or 3."
+
         self._in_rally = False
         self._challenge_resolved = True
 
@@ -178,4 +190,4 @@ class AgoraHallScene:
                 "net, Sleepy taps it back lazily for the point. You lose the "
                 "rally."
             )
-        return "Invalid shot choice. Pick 1, 2, or 3."
+
