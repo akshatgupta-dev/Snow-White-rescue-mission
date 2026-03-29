@@ -5,6 +5,16 @@ The main game runner can import this class and call its methods as part of
 the full game flow.
 """
 
+from pathlib import Path
+import sys
+
+# Allow direct script execution: `python src/agora_scene.py`
+if __name__ == "__main__" and "pipeline" not in sys.modules:
+    repo_root = Path(__file__).resolve().parents[1]
+    repo_root_str = str(repo_root)
+    if repo_root_str not in sys.path:
+        sys.path.insert(0, repo_root_str)
+
 from pipeline.game_foundation import (
     SCENE_AGORA,
     ITEM_LIGHTSABER,
