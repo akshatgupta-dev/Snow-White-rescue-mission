@@ -17,8 +17,8 @@ from src.game_foundation import (
 )
 
 from pipeline.agora_scene import AgoraHallScene
-from pipeline.akshat import library_scene
-from pipeline.scene1 import play_kirjurinluoto_scene
+from pipeline.akshat import play_kirjurinluoto_scene
+from pipeline.scene1 import library_scene
 from pipeline.cafeteria_v2 import play_cafeteria_scene
 from pipeline.bear_bridge_v2 import play_bear_bridge_scene
 
