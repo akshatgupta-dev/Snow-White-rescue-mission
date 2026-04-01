@@ -1,72 +1,26 @@
-from __future__ import annotations
+from src.game_foundation import (
+    GameState,
+    create_new_game,
+    has_item,
+    get_flag,
+    SCENE_START,
+    SCENE_LIBRARY,
+    SCENE_AGORA,
+    SCENE_CAFETERIA,
+    SCENE_BEAR_BRIDGE,
+    SCENE_KIRJURINLUOTO,
+    SCENE_FINAL,
+    ITEM_LIGHTSABER,
+    STATE_HAS_MAP,
+    STATE_BEAR_ALLOWED_PASSAGE,
+    STATE_SNOW_WHITE_RESCUED,
+)
 
-import importlib.util
-import sys
-import types
-from pathlib import Path
-
-
-BASE_DIR = Path(__file__).resolve().parent
-
-
-def load_module(module_name: str, candidate_files: list[str]):
-    """Load a module from the first matching filename in this folder."""
-    for filename in candidate_files:
-        path = BASE_DIR / filename
-        if path.exists():
-            spec = importlib.util.spec_from_file_location(module_name, path)
-            if spec is None or spec.loader is None:
-                raise ImportError(f"Could not load spec for {filename}")
-            module = importlib.util.module_from_spec(spec)
-            sys.modules[module_name] = module
-            spec.loader.exec_module(module)
-            return module
-
-    raise FileNotFoundError(
-        f"Could not find any of these files for {module_name}: {candidate_files}"
-    )
-
-
-foundation = load_module("foundation", ["foundation.py", "game_foundation.py"])
-sys.modules["game_foundation"] = foundation
-
-pipeline_pkg = types.ModuleType("pipeline")
-pipeline_pkg.game_foundation = foundation
-sys.modules["pipeline"] = pipeline_pkg
-sys.modules["pipeline.game_foundation"] = foundation
-
-member1 = load_module("member1", ["akshat.py"])
-member2 = load_module("member2", ["agora_scene.py"])
-bear_bridge_mod = load_module("bear_bridge", ["bear_bridge_v2.py"])
-cafeteria_mod = load_module("cafeteria", ["cafeteria_v2.py"])
-member4 = load_module("member4", ["scene1.py"])
-
-
-# Pull required names from foundation
-GameState = foundation.GameState
-create_new_game = foundation.create_new_game
-has_item = foundation.has_item
-get_flag = foundation.get_flag
-
-SCENE_START = foundation.SCENE_START
-SCENE_LIBRARY = foundation.SCENE_LIBRARY
-SCENE_AGORA = foundation.SCENE_AGORA
-SCENE_CAFETERIA = foundation.SCENE_CAFETERIA
-SCENE_BEAR_BRIDGE = foundation.SCENE_BEAR_BRIDGE
-SCENE_KIRJURINLUOTO = foundation.SCENE_KIRJURINLUOTO
-SCENE_FINAL = foundation.SCENE_FINAL
-
-ITEM_LIGHTSABER = foundation.ITEM_LIGHTSABER
-
-STATE_HAS_MAP = foundation.STATE_HAS_MAP
-STATE_BEAR_ALLOWED_PASSAGE = foundation.STATE_BEAR_ALLOWED_PASSAGE
-STATE_SNOW_WHITE_RESCUED = foundation.STATE_SNOW_WHITE_RESCUED
-
-AgoraHallScene = member2.AgoraHallScene
-play_kirjurinluoto_scene = member1.play_kirjurinluoto_scene
-play_cafeteria_scene = cafeteria_mod.play_cafeteria_scene
-play_bear_bridge_scene = bear_bridge_mod.play_bear_bridge_scene
-library_scene = member4.library_scene
+from pipeline.agora_scene import AgoraHallScene
+from pipeline.akshat import library_scene
+from pipeline.scene1 import play_kirjurinluoto_scene
+from pipeline.cafeteria_v2 import play_cafeteria_scene
+from pipeline.bear_bridge_v2 import play_bear_bridge_scene
 
 
 def print_status(state: GameState):
@@ -107,8 +61,7 @@ def play_library_wrapper(state: GameState):
 
 
 def play_agora_wrapper(state: GameState, agora_scene: AgoraHallScene):
-    first_entry_text = agora_scene.enter(state)
-    print("\n" + first_entry_text)
+    print("\n" + agora_scene.enter(state))
 
     while state.health > 0:
         if has_item(state, ITEM_LIGHTSABER):
