@@ -1,4 +1,4 @@
-from pipeline.game_foundation import (
+from src.game_foundation import (
     SCENE_KIRJURINLUOTO,
     ITEM_PUMPKIN,
     ITEM_CARRIAGE,
