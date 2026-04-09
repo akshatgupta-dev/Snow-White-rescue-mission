@@ -1,4 +1,5 @@
 from src.game_foundation import *
+from src.input_utils import match_text
 
 def library_scene(state):
    
@@ -11,9 +12,18 @@ def library_scene(state):
     
     # The Puzzle / Special Action
     print("\nGUARDIAN: 'What is the full form of SAMK?'")
-    answer = input("Your answer: ").lower().strip()
-    
-    if "satakunta university of applied sciences" in answer:
+    answer = input("Your answer: ").strip()
+
+    ok, _ = match_text(
+        answer,
+        [
+            "satakunta university of applied sciences",
+            "satakunta university of applied science",
+        ],
+        cutoff=0.84,
+    )
+
+    if ok:
         print("\n'Correct!' The guardian bows and vanishes, leaving a glowing map behind.")
         # Update state using foundation helpers
         add_item(state, ITEM_MAP)

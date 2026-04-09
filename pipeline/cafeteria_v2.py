@@ -8,6 +8,8 @@ from src.game_foundation import (
     transform_item,
 )
 
+from src.input_utils import match_text
+
 
 def play_cafeteria_scene(state):
     print("\n--- SAMK Cafeteria ---")
@@ -18,7 +20,16 @@ def play_cafeteria_scene(state):
 
     while True:
         print("\nChoices: look around, inspect pumpkin, take pumpkin, leave")
-        choice = input("> ").strip().lower()
+        raw_choice = input("> ").strip()
+        ok, choice = match_text(
+            raw_choice,
+            ["look around", "inspect pumpkin", "take pumpkin", "leave"],
+            cutoff=0.80,
+        )
+
+        if not ok:
+            print("Invalid choice.")
+            continue
 
         if choice == "look around":
             print("The cafeteria is dark and silent.")

@@ -1,16 +1,22 @@
 from src.game_foundation import *
+from src.input_utils import match_text
 
 def play_kirjurinluoto_scene(state):
     if not get_flag(state, STATE_BEAR_ALLOWED_PASSAGE):
         print("The Guardian of Pori restricts your passage into Kirjurinjuoto! FOR NOW...")
         return
-    
-    print("/n            KIRJURINLUOTO             /n")
+
+    print("\n            KIRJURINLUOTO             \n")
     print("Fog covers the park. Strange magic creates false paths.")
     print("Cinderella must choose the correct way forward.")
-    
+
     while True:
-        choice = input("Choose a path (left / center / right): ").strip().lower()
+        raw_choice = input("Choose a path (left / center / right): ").strip()
+        ok, choice = match_text(raw_choice, ["left", "center", "right"], cutoff=0.80)
+
+        if not ok:
+            print("\nInvalid choice. Try again.")
+            continue
 
         if choice == "center":
             print("\nCinderella stays calm and follows the correct path through the fog.")
@@ -26,11 +32,8 @@ def play_kirjurinluoto_scene(state):
                 print("\nCinderella is lost in the fog. Game over.")
                 return
 
-        else:
-            print("\nInvalid choice. Try again.")
-
     evil_queen_battle(state)
-    
+
 def evil_queen_battle(state):
     print("\n=== Evil Queen Battle ===")
     print("The Evil Queen laughs dramatically from the stage.")
@@ -43,7 +46,12 @@ def evil_queen_battle(state):
         return
 
     while True:
-        choice = input("What do you do? (attack / defend / talk): ").strip().lower()
+        raw_choice = input("What do you do? (attack / defend / talk): ").strip()
+        ok, choice = match_text(raw_choice, ["attack", "defend", "talk"], cutoff=0.80)
+
+        if not ok:
+            print("\nInvalid choice. Try again.")
+            continue
 
         if choice == "attack":
             print("\nCinderella uses the lightsaber.")
@@ -71,9 +79,6 @@ def evil_queen_battle(state):
                 print("\nCinderella is defeated. Game over.")
                 return
 
-        else:
-            print("\nInvalid choice. Try again.")
-            
 def rescue_snow_white(state):
     print("\n=== Final Chamber ===")
     print("Snow White is trapped inside magic.")
@@ -83,8 +88,7 @@ def rescue_snow_white(state):
     state.current_scene = SCENE_FINAL
 
     play_final_scene(state)
-    
-    
+
 def play_final_scene(state):
     print("\n=== Ending Scene ===")
     print("Snow White is rescued.")
@@ -95,7 +99,12 @@ def play_final_scene(state):
         add_item(state, ITEM_APPLE)
 
     while True:
-        choice = input("Do you eat the apple? (yes / no): ").strip().lower()
+        raw_choice = input("Do you eat the apple? (yes / no): ").strip()
+        ok, choice = match_text(raw_choice, ["yes", "no"], cutoff=0.75)
+
+        if not ok:
+            print("\nInvalid choice. Try again.")
+            continue
 
         if choice == "yes":
             remove_item(state, ITEM_APPLE)
@@ -113,6 +122,3 @@ def play_final_scene(state):
             print("Snow White is still rescued, and they safely leave Kirjurinluoto together.")
             print("Moral: Be kind. Exercise. Go study. And eat healthy.")
             return
-
-        else:
-            print("\nInvalid choice. Try again.")

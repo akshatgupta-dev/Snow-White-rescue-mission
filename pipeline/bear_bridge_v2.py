@@ -9,13 +9,13 @@ from src.game_foundation import (
     set_flag,
     transform_item,
 )
+from src.input_utils import match_text
 
 
 def play_bear_bridge_scene(state):
     print("\n--- Bear Bridge ---")
     print("The carriage rushes forward through the night...")
 
-    # carriage turns back into pumpkin
     if has_item(state, ITEM_CARRIAGE):
         transform_item(state, ITEM_CARRIAGE, ITEM_PUMPKIN)
         print("Suddenly, the magic fades.")
@@ -28,7 +28,16 @@ def play_bear_bridge_scene(state):
 
     while True:
         print("\nChoices: look around, talk to bear, give pumpkin, keep pumpkin")
-        choice = input("> ").strip().lower()
+        raw_choice = input("> ").strip()
+        ok, choice = match_text(
+            raw_choice,
+            ["look around", "talk to bear", "give pumpkin", "keep pumpkin"],
+            cutoff=0.80,
+        )
+
+        if not ok:
+            print("Invalid choice.")
+            continue
 
         if choice == "look around":
             print("The bridge leads to Kirjurinluoto.")
@@ -65,6 +74,3 @@ def play_bear_bridge_scene(state):
             print("The bear looks at her... then slowly shakes its head.")
             print("It does not move.")
             print("She cannot cross the bridge like this.")
-
-        else:
-            print("Invalid choice.")

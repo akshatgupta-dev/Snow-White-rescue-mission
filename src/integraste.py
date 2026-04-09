@@ -10,6 +10,7 @@ from src.game_foundation import (
     SCENE_BEAR_BRIDGE,
     SCENE_KIRJURINLUOTO,
     SCENE_FINAL,
+    DYNAMIC_SCENE,
     ITEM_LIGHTSABER,
     STATE_HAS_MAP,
     STATE_BEAR_ALLOWED_PASSAGE,
@@ -21,6 +22,9 @@ from pipeline.akshat import play_kirjurinluoto_scene
 from pipeline.scene1 import library_scene
 from pipeline.cafeteria_v2 import play_cafeteria_scene
 from pipeline.bear_bridge_v2 import play_bear_bridge_scene
+
+from src.narrator import generate_story_block, print_block
+from src.dynamic_scene import queue_dynamic_scene, play_dynamic_scene
 
 
 def print_status(state: GameState):
@@ -39,6 +43,14 @@ def play_start_scene(state: GameState):
     print("Cinderella wakes up in a strange magical version of SAMK.")
     print("She must cross the campus, defeat the Evil Queen,")
     print("and rescue Snow White.")
+
+    block = generate_story_block(
+        "opening cutscene",
+        state,
+        "Cinderella is about to begin the journey toward the library."
+    )
+    print_block(block)
+
     input("\nPress Enter to begin the journey...")
     state.current_scene = SCENE_LIBRARY
 
@@ -46,27 +58,61 @@ def play_start_scene(state: GameState):
 def play_library_wrapper(state: GameState):
     state.current_scene = SCENE_LIBRARY
 
+    intro = generate_story_block(
+        "scene intro",
+        state,
+        "Cinderella is about to face the library guardian."
+    )
+    print_block(intro)
+
     while state.health > 0 and not get_flag(state, STATE_HAS_MAP):
         library_scene(state)
 
-        if state.health <= 0:
-            print("\nCinderella can no longer continue.")
-            return
+    if state.health <= 0:
+        return
 
-        if get_flag(state, STATE_HAS_MAP):
-            print("\nCinderella uses the glowing map and moves on.")
-            return
+    if get_flag(state, STATE_HAS_MAP):
+        outro = generate_story_block(
+            "transition cutscene",
+            state,
+            "Cinderella has earned the map and is leaving for Agora Hall."
+        )
+        print_block(outro)
 
-        print("\nThe guardian still blocks the way. Try again.")
+        queue_dynamic_scene(
+            state,
+            return_scene=SCENE_AGORA,
+            extra_context="Cinderella has just earned the map and is walking from the library toward Agora Hall."
+        )
 
 
 def play_agora_wrapper(state: GameState, agora_scene: AgoraHallScene):
+    state.current_scene = SCENE_AGORA
+
+    intro = generate_story_block(
+        "scene intro",
+        state,
+        "Cinderella enters Agora Hall and senses something important is hidden here."
+    )
+    print_block(intro)
+
     print("\n" + agora_scene.enter(state))
 
     while state.health > 0:
         if has_item(state, ITEM_LIGHTSABER):
+            outro = generate_story_block(
+                "transition cutscene",
+                state,
+                "Cinderella now has the lightsaber and is heading toward the cafeteria."
+            )
+            print_block(outro)
+
             print("\nCinderella leaves Agora Hall with the lightsaber.")
-            state.current_scene = SCENE_CAFETERIA
+            queue_dynamic_scene(
+                state,
+                return_scene=SCENE_CAFETERIA,
+                extra_context="Cinderella has won the lightsaber and is on the way from Agora Hall to the cafeteria."
+            )
             return
 
         print("\nChoices:")
@@ -78,23 +124,85 @@ def play_agora_wrapper(state: GameState, agora_scene: AgoraHallScene):
         print("\n" + result)
 
         if has_item(state, ITEM_LIGHTSABER):
+            outro = generate_story_block(
+                "transition cutscene",
+                state,
+                "With the weapon secured, the next part of the journey begins."
+            )
+            print_block(outro)
+
             print("\nWith the weapon secured, the path forward opens.")
-            state.current_scene = SCENE_CAFETERIA
+            queue_dynamic_scene(
+                state,
+                return_scene=SCENE_CAFETERIA,
+                extra_context="Cinderella has secured the lightsaber and is heading toward the cafeteria."
+            )
             return
 
 
 def play_cafeteria_wrapper(state: GameState):
     state.current_scene = SCENE_CAFETERIA
+
+    intro = generate_story_block(
+        "scene intro",
+        state,
+        "Cinderella arrives at the cafeteria before the next challenge."
+    )
+    print_block(intro)
+
     play_cafeteria_scene(state)
+
+    if state.health <= 0:
+        return
+
+    if state.current_scene == SCENE_BEAR_BRIDGE:
+        outro = generate_story_block(
+            "transition cutscene",
+            state,
+            "The cafeteria scene is over and Cinderella pushes onward."
+        )
+        print_block(outro)
+
+        queue_dynamic_scene(
+            state,
+            return_scene=SCENE_BEAR_BRIDGE,
+            extra_context="Cinderella has just left the cafeteria in a magical carriage and is heading toward Bear Bridge."
+        )
 
 
 def play_bear_bridge_wrapper(state: GameState):
     state.current_scene = SCENE_BEAR_BRIDGE
+
+    intro = generate_story_block(
+        "scene intro",
+        state,
+        "Cinderella approaches the bridge where the bear blocks the way."
+    )
+    print_block(intro)
+
     play_bear_bridge_scene(state)
+
+    if state.health <= 0:
+        return
+
+    if state.current_scene == SCENE_KIRJURINLUOTO:
+        queue_dynamic_scene(
+            state,
+            return_scene=SCENE_KIRJURINLUOTO,
+            extra_context="Cinderella has helped the bear and is now crossing toward Kirjurinluoto for the final confrontation."
+        )
 
 
 def play_kirjurinluoto_wrapper(state: GameState):
     state.current_scene = SCENE_KIRJURINLUOTO
+
+    intro = generate_story_block(
+        "scene intro",
+        state,
+        "Cinderella reaches the final area and prepares for the confrontation."
+    )
+    print_block(intro)
+
     play_kirjurinluoto_scene(state)
 
 
@@ -110,6 +218,9 @@ def main():
 
         elif state.current_scene == SCENE_LIBRARY:
             play_library_wrapper(state)
+
+        elif state.current_scene == DYNAMIC_SCENE:
+            play_dynamic_scene(state)
 
         elif state.current_scene == SCENE_AGORA:
             play_agora_wrapper(state, agora_scene)
