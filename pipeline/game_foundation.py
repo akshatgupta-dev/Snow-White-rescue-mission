@@ -24,6 +24,7 @@ CHAR_CINDERELLA = "Cinderella"
 CHAR_SNOW_WHITE = "Snow White"
 CHAR_EVIL_QUEEN = "Evil Queen"
 CHAR_BEAR = "Bear"
+CHAR_SEVEN_DWARFS ="Seven Dwarfs"
 
 # state flags
 STATE_HAS_MAP = "has_map"
@@ -65,33 +66,47 @@ def create_new_game():
         } # at the sart the player has not accomplished anything so everything is set to false
     )
     
-def add_item(state, item): # adding items into the inventory
+def add_item(state: GameState, item: str) -> None: # adding items into the inventory
     if item not in state.inventory:
         state.inventory.append(item)
         
-def remove_item(state, item): # removing items from the inventory
+def remove_item(state: GameState, item: str) -> bool: # removing items from the inventory
     if item in state.inventory:
         state.inventory.remove(item)
         return True
     return False
         
-def has_item(state, item): # seeing what items are in the inventory
+def has_item(state: GameState, item: str) -> bool: # seeing what items are in the inventory
     return item in state.inventory
 
 
-def set_flag(state, flag_name, value=True): # for changing flag value
+def set_flag(state: GameState, flag_name: str, value: bool = True) -> None: # for changing flag value
     state.flags[flag_name] = value
     
-def get_flag(state, flag_name): #read flag value
+def get_flag(state: GameState, flag_name: str) -> bool: #read flag value
     return state.flags.get(flag_name, False)
 
+def damage_player(state: GameState, amount: int) -> None:
+    state.health = max(0, state.health - amount)
 
-def transform_item(state, old_item, new_item, flag_name=None): # for transforming items in the inventory
-    if old_item in state.inventory:
+def heal_player(state: GameState, amount: int) -> None:
+    state.health = min(100, state.health + amount)
+
+def transform_item(
+        state: GameState,
+        old_item: str,
+        new_item: str,
+        flag_name: str | None = None,
+) -> bool: # for transforming items in the inventory
+    if old_item not in state.inventory:
+        return False
+
         state.inventory.remove(old_item)
-        if new_item not in state.inventory:
+
+    if new_item not in state.inventory:
             state.inventory.append(new_item)
-        if flag_name:
+
+    if flag_name is not None:
             state.flags[flag_name] = True
-        return True
-    return False
+
+    return True

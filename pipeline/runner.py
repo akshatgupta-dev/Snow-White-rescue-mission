@@ -1,4 +1,4 @@
-from src.game_foundation import (
+from pipeline.game_foundation import (
     GameState,
     create_new_game,
     has_item,
@@ -16,11 +16,11 @@ from src.game_foundation import (
     STATE_SNOW_WHITE_RESCUED,
 )
 
-from pipeline.agora_scene import AgoraHallScene
-from pipeline.akshat import play_kirjurinluoto_scene
-from pipeline.scene1 import library_scene
-from pipeline.cafeteria_v2 import play_cafeteria_scene
-from pipeline.bear_bridge_v2 import play_bear_bridge_scene
+from pipeline.scenes.agora_scene import AgoraHallScene
+from pipeline.scenes.kirjurinluoto_ending_sccene import play_kirjurinluoto_scene
+from pipeline.scenes.library_scene import library_scene
+from pipeline.scenes.cafeteria_scene import play_cafeteria_scene
+from pipeline.scenes.bear_bridge_scene import play_bear_bridge_scene
 
 
 def print_status(state: GameState):

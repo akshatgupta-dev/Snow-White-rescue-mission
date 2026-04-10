@@ -15,7 +15,7 @@ if __name__ == "__main__" and "pipeline" not in sys.modules:
     if repo_root_str not in sys.path:
         sys.path.insert(0, repo_root_str)
 
-from src.game_foundation import (
+from pipeline.game_foundation import (
     SCENE_AGORA,
     ITEM_LIGHTSABER,
     STATE_HAS_LIGHTSABER,

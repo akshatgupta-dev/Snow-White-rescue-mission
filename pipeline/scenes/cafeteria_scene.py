@@ -1,4 +1,4 @@
-from src.game_foundation import (
+from pipeline.game_foundation import (
     SCENE_BEAR_BRIDGE,
     ITEM_PUMPKIN,
     ITEM_CARRIAGE,

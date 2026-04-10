@@ -1,4 +1,4 @@
-from src.game_foundation import *
+from pipeline.game_foundation import *
 
 def play_kirjurinluoto_scene(state):
     if not get_flag(state, STATE_BEAR_ALLOWED_PASSAGE):
