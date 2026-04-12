@@ -41,7 +41,7 @@ class GameApp(tk.Tk):
 
         self._setup_ui()
         self.after(40, self._drain_output_queue)
-        self.after(25, self._typewriter_loop)  # Fast typewriter effect (25ms per char)
+        self.after(5, self._typewriter_loop)  # Very fast typewriter effect (5ms per char)
         self.focus()
 
     def _setup_ui(self):
@@ -112,13 +112,13 @@ class GameApp(tk.Tk):
         self.after(40, self._drain_output_queue)
 
     def _typewriter_loop(self):
-        """Fast typewriter effect - add one character at a time to the log."""
+        """Very fast typewriter effect - add one character at a time to the log."""
         try:
             char = self.typewriter_queue.get_nowait()
             self._append_text(char)
         except queue.Empty:
             pass
-        self.after(25, self._typewriter_loop)  # 25ms per character = fast typing
+        self.after(5, self._typewriter_loop)  # 5ms per character = very fast typing
 
     def _new_game(self):
         """Start a new game in a background thread."""
