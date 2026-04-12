@@ -6,3 +6,6 @@ __pycache__/
 pipeline/bear_bridge.py
 pipeline/cafeteria.py
 pipeline/test_game.py
+.python-version
+DESIGN_TEMPLATE-v1.md
+UI_PLAN.md
