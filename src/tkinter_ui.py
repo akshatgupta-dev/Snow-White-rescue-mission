@@ -6,6 +6,7 @@ Simple window with:
 - Story scrollable text area
 - Input field at bottom
 - Minimal buttons (New Game, Quit)
+- Typewriter effect on text output
 
 Integrates with GameEngine via input queue.
 Game runs in background thread so Tkinter stays responsive.
@@ -15,6 +16,7 @@ import contextlib
 import queue
 import threading
 import tkinter as tk
+import tkinter.font as tkFont
 from tkinter import scrolledtext
 
 from src.game_engine import GameEngine
@@ -32,21 +34,25 @@ class GameApp(tk.Tk):
         self.engine = GameEngine()
         self.input_queue = queue.Queue()
         self.output_queue = queue.Queue()
+        self.typewriter_queue = queue.Queue()  # Queue for typewriter effect
+        self.typewriter_active = False  # Flag to prevent overlapping typewriter calls
         self.game_thread = None
         self.game_active = False
 
         self._setup_ui()
         self.after(40, self._drain_output_queue)
+        self.after(25, self._typewriter_loop)  # Fast typewriter effect (25ms per char)
         self.focus()
 
     def _setup_ui(self):
         """Build minimal retro UI."""
         # Story log (green-on-black, monospace)
+        mono_font = tkFont.Font(family="Monospace", size=11)
         self.log = scrolledtext.ScrolledText(
             self,
             bg="#000000",
             fg="#00ff00",
-            font=("Courier", 11),
+            font=mono_font,
             wrap=tk.WORD,
             state=tk.DISABLED,
         )
@@ -59,11 +65,11 @@ class GameApp(tk.Tk):
         input_frame = tk.Frame(self, bg="#000000")
         input_frame.pack(fill=tk.X, padx=2, pady=2)
 
-        tk.Label(input_frame, text="> ", bg="#000000", fg="#00ff00", font=("Courier", 11)).pack(
+        tk.Label(input_frame, text="> ", bg="#000000", fg="#00ff00", font=mono_font).pack(
             side=tk.LEFT
         )
         self.input_field = tk.Entry(
-            input_frame, bg="#000000", fg="#00ff00", font=("Courier", 11), insertbackground="#00ff00"
+            input_frame, bg="#000000", fg="#00ff00", font=mono_font, insertbackground="#00ff00"
         )
         self.input_field.pack(fill=tk.X, side=tk.LEFT, padx=0)
         self.input_field.bind("<Return>", lambda e: self._submit_input())
@@ -74,12 +80,12 @@ class GameApp(tk.Tk):
 
         tk.Button(
             button_frame, text="[N]ew Game", command=self._new_game, bg="#1a1a1a", fg="#00ff00", 
-            font=("Courier", 9), relief=tk.FLAT, padx=3, pady=1
+            font=("Monospace", 9), relief=tk.FLAT, padx=3, pady=1
         ).pack(side=tk.LEFT, padx=2)
 
         tk.Button(
             button_frame, text="[Q]uit", command=self._quit_game, bg="#1a1a1a", fg="#00ff00",
-            font=("Courier", 9), relief=tk.FLAT, padx=3, pady=1
+            font=("Monospace", 9), relief=tk.FLAT, padx=3, pady=1
         ).pack(side=tk.LEFT, padx=2)
 
         # Bind keyboard shortcuts
@@ -94,14 +100,25 @@ class GameApp(tk.Tk):
         self.log.config(state=tk.DISABLED)
 
     def _drain_output_queue(self):
-        """Move queued stdout text into the story log."""
+        """Move queued stdout text into the typewriter queue."""
         while True:
             try:
                 chunk = self.output_queue.get_nowait()
             except queue.Empty:
                 break
-            self._append_text(chunk)
+            # Queue for typewriter effect
+            for char in chunk:
+                self.typewriter_queue.put(char)
         self.after(40, self._drain_output_queue)
+
+    def _typewriter_loop(self):
+        """Fast typewriter effect - add one character at a time to the log."""
+        try:
+            char = self.typewriter_queue.get_nowait()
+            self._append_text(char)
+        except queue.Empty:
+            pass
+        self.after(25, self._typewriter_loop)  # 25ms per character = fast typing
 
     def _new_game(self):
         """Start a new game in a background thread."""
