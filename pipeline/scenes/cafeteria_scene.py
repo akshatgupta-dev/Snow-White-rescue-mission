@@ -1,4 +1,5 @@
-from pipeline.game_foundation import (
+from src.game_foundation import (
+    SCENE_CAFETERIA,
     SCENE_BEAR_BRIDGE,
     ITEM_PUMPKIN,
     ITEM_CARRIAGE,
@@ -6,55 +7,244 @@ from pipeline.game_foundation import (
     add_item,
     has_item,
     transform_item,
+    damage_player,
 )
 
 
-def play_cafeteria_scene(state):
-    print("\n--- SAMK Cafeteria ---")
-    print("Cinderella steps into the cafeteria.")
-    print("It is late at night, and the whole place is strangely quiet.")
-    print("The lights buzz softly overhead.")
-    print("In the middle of an empty table sits a beautiful pumpkin.")
+def get_cafeteria_intro():
+    return {
+        "prompt_type": "scene_intro",
+        "scene_id": SCENE_CAFETERIA,
+        "scene_facts": [
+            "Cinderella enters the SAMK cafeteria late at night.",
+            "The cafeteria is empty, silent, and strangely still.",
+            "The overhead lights buzz softly.",
+            "A single perfect pumpkin sits on a table in the middle of the room.",
+            "The whole space feels like it is waiting for something.",
+        ],
+    }
 
-    while True:
-        print("\nChoices: look around, inspect pumpkin, take pumpkin, leave")
-        choice = input("> ").strip().lower()
 
-        if choice == "look around":
-            print("The cafeteria is dark and silent.")
-            print("There is no food, no staff, and no students anywhere.")
-            print("Only the pumpkin seems to be waiting for Cinderella.")
+def get_cafeteria_actions(state):
+    if has_item(state, ITEM_CARRIAGE):
+        return [
+            {
+                "action_id": "ride_carriage",
+                "label": "Step into the magical carriage",
+                "input_required": False,
+            }
+        ]
 
-        elif choice == "inspect pumpkin":
-            print("The pumpkin looks unusually perfect.")
-            print("Its orange skin shines under the cafeteria lights.")
-            print("Cinderella feels a little suspicious...")
-            print("...but also very hungry.")
+    if has_item(state, ITEM_PUMPKIN):
+        return [
+            {
+                "action_id": "inspect_pumpkin",
+                "label": "Inspect the pumpkin more closely",
+                "input_required": False,
+            },
+            {
+                "action_id": "listen",
+                "label": "Listen to the quiet cafeteria",
+                "input_required": False,
+            },
+            {
+                "action_id": "wait",
+                "label": "Wait and see what happens",
+                "input_required": False,
+            },
+            {
+                "action_id": "eat_pumpkin",
+                "label": "Try to eat the pumpkin",
+                "input_required": False,
+            },
+        ]
 
-        elif choice == "take pumpkin":
-            if not has_item(state, ITEM_PUMPKIN) and not has_item(state, ITEM_CARRIAGE):
-                add_item(state, ITEM_PUMPKIN)
-                print("Cinderella picks up the pumpkin carefully.")
-                print("She is just about to take a bite...")
+    return [
+        {
+            "action_id": "look_around",
+            "label": "Look around the cafeteria",
+            "input_required": False,
+        },
+        {
+            "action_id": "inspect_tables",
+            "label": "Inspect the empty tables and serving area",
+            "input_required": False,
+        },
+        {
+            "action_id": "listen",
+            "label": "Listen carefully",
+            "input_required": False,
+        },
+        {
+            "action_id": "inspect_pumpkin",
+            "label": "Inspect the pumpkin",
+            "input_required": False,
+        },
+        {
+            "action_id": "take_pumpkin",
+            "label": "Take the pumpkin",
+            "input_required": False,
+        },
+    ]
 
-                print("\nThe clock strikes 10:00 PM.")
-                print("A strange magic fills the cafeteria.")
-                print("The pumpkin glows, shakes, and suddenly transforms!")
 
-                if transform_item(state, ITEM_PUMPKIN, ITEM_CARRIAGE, STATE_HAS_CARRIAGE):
-                    print("The pumpkin becomes a magical carriage.")
-                    print('Cinderella stares at it for a moment.')
-                    print('"…ok. Magic."')
-                    print("Without waiting for an explanation, she climbs in.")
-                    state.current_scene = SCENE_BEAR_BRIDGE
-                    break
-            else:
-                print("Cinderella already dealt with the pumpkin.")
+def handle_cafeteria_action(state, action_id, user_input=None):
+    if has_item(state, ITEM_CARRIAGE):
+        if action_id == "ride_carriage":
+            state.current_scene = SCENE_BEAR_BRIDGE
+            return {
+                "prompt_type": "success_transition",
+                "scene_id": SCENE_CAFETERIA,
+                "scene_facts": [
+                    "Cinderella steps into the magical carriage.",
+                    "It begins to move as if it has been waiting for her all along.",
+                    "The strange cafeteria disappears behind her as she is carried into the night.",
+                ],
+                "next_scene": SCENE_BEAR_BRIDGE,
+            }
 
-        elif choice == "leave":
-            print("Cinderella looks at the pumpkin again.")
-            print("No. That has to be important.")
-            print("She decides not to leave yet.")
+        return {
+            "prompt_type": "action_reaction",
+            "scene_id": SCENE_CAFETERIA,
+            "scene_facts": [
+                "The carriage waits silently for Cinderella to get in.",
+            ],
+            "next_scene": None,
+        }
 
-        else:
-            print("Invalid choice.")
+    if has_item(state, ITEM_PUMPKIN):
+        return _handle_pumpkin_state(state, action_id)
+
+    if action_id == "look_around":
+        return {
+            "prompt_type": "action_reaction",
+            "scene_id": SCENE_CAFETERIA,
+            "scene_facts": [
+                "The cafeteria is completely empty.",
+                "No staff, students, or ordinary food remain.",
+                "The pumpkin feels like the only important thing in the room.",
+            ],
+            "next_scene": None,
+        }
+
+    if action_id == "inspect_tables":
+        return {
+            "prompt_type": "hint_text",
+            "scene_id": SCENE_CAFETERIA,
+            "scene_facts": [
+                "The tables are abandoned and spotless.",
+                "The serving area looks frozen, as if dinner ended hours ago.",
+                "Everything ordinary has been stripped away, leaving only the pumpkin.",
+            ],
+            "next_scene": None,
+        }
+
+    if action_id == "listen":
+        return {
+            "prompt_type": "hint_text",
+            "scene_id": SCENE_CAFETERIA,
+            "scene_facts": [
+                "At first Cinderella hears only the low electric buzz of the lights.",
+                "Then she notices the strange weight of the silence, as if time itself is holding its breath.",
+                "The room feels like it is leading toward a magical moment.",
+            ],
+            "next_scene": None,
+        }
+
+    if action_id == "inspect_pumpkin":
+        return {
+            "prompt_type": "action_reaction",
+            "scene_id": SCENE_CAFETERIA,
+            "scene_facts": [
+                "The pumpkin looks unusually perfect.",
+                "Its surface reflects the overhead lights with an unnatural glow.",
+                "It seems edible, but not entirely meant for eating.",
+            ],
+            "next_scene": None,
+        }
+
+    if action_id == "take_pumpkin":
+        add_item(state, ITEM_PUMPKIN)
+        return {
+            "prompt_type": "action_reaction",
+            "scene_id": SCENE_CAFETERIA,
+            "scene_facts": [
+                "Cinderella picks up the pumpkin.",
+                "It feels heavier and warmer than expected.",
+                "Her hunger immediately makes eating it feel like a very good idea.",
+            ],
+            "next_scene": None,
+        }
+
+    return {
+        "prompt_type": "action_reaction",
+        "scene_id": SCENE_CAFETERIA,
+        "scene_facts": [
+            "Cinderella lingers in the eerie cafeteria.",
+            "The room remains silent around her.",
+        ],
+        "next_scene": None,
+    }
+
+
+def _handle_pumpkin_state(state, action_id):
+    if action_id == "inspect_pumpkin":
+        return {
+            "prompt_type": "hint_text",
+            "scene_id": SCENE_CAFETERIA,
+            "scene_facts": [
+                "The pumpkin feels slightly unnatural in Cinderella's hands.",
+                "Something about it suggests it is waiting for the right moment to change.",
+                "It does not feel like ordinary food.",
+            ],
+            "next_scene": None,
+        }
+
+    if action_id == "listen":
+        return {
+            "prompt_type": "hint_text",
+            "scene_id": SCENE_CAFETERIA,
+            "scene_facts": [
+                "The cafeteria is so quiet that even the buzzing lights feel important.",
+                "The air seems tense, as if a signal or deadline is approaching.",
+                "Cinderella gets the sense that waiting might matter.",
+            ],
+            "next_scene": None,
+        }
+
+    if action_id == "wait":
+        transform_item(state, ITEM_PUMPKIN, ITEM_CARRIAGE, STATE_HAS_CARRIAGE)
+        return {
+            "prompt_type": "success_transition",
+            "scene_id": SCENE_CAFETERIA,
+            "scene_facts": [
+                "The stillness of the cafeteria suddenly breaks.",
+                "An unseen clock strikes 10:00 PM.",
+                "The pumpkin glows, shakes, and transforms into a magical carriage.",
+                "Cinderella accepts the absurdity of the moment with tired disbelief.",
+            ],
+            "next_scene": None,
+        }
+
+    if action_id == "eat_pumpkin":
+        damage_player(state, 5)
+        return {
+            "prompt_type": "penalty_event",
+            "scene_id": SCENE_CAFETERIA,
+            "scene_facts": [
+                "Cinderella tries to bite into the pumpkin.",
+                "The taste is wrong, almost magically resistant.",
+                "The experience leaves her slightly weaker and more confused.",
+            ],
+            "next_scene": None,
+        }
+
+    return {
+        "prompt_type": "action_reaction",
+        "scene_id": SCENE_CAFETERIA,
+        "scene_facts": [
+            "Cinderella pauses with the pumpkin in her hands.",
+            "The room feels like it is waiting for her to understand something.",
+        ],
+        "next_scene": None,
+    }
