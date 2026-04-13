@@ -6,9 +6,15 @@ from pipeline.game_foundation import (
     SCENE_BEAR_BRIDGE,
     SCENE_KIRJURINLUOTO,
     SCENE_FINAL,
+    DYNAMIC_SCENE,
 )
 
 from pipeline.ai.narrator import generate_narration
+from pipeline.ai.dynamic_scene import (
+    queue_dynamic_scene,
+    play_dynamic_scene,
+    apply_dynamic_effect,
+)
 
 from pipeline.scenes.library_scene import (
     get_library_intro,
@@ -84,17 +90,6 @@ def print_status(state):
     print("-" * 40)
 
 
-def narrate_result(state, result, player_action=""):
-    narration = generate_narration(
-        state=state,
-        prompt_type=result["prompt_type"],
-        scene_id=result["scene_id"],
-        scene_facts=result["scene_facts"],
-        player_action=player_action,
-    )
-    print("\n" + narration + "\n")
-
-
 def choose_action(actions):
     print("Actions:")
     for index, action in enumerate(actions, start=1):
@@ -131,11 +126,122 @@ def get_scene_intro(scene_id, state):
     return intro_fn()
 
 
-def main():
+# ==========================================
+# REUSABLE ENGINE FUNCTIONS
+# ==========================================
+
+def start_game():
     state = create_new_game()
     state.current_scene = SCENE_LIBRARY
-
     shown_intro_scenes = set()
+    return state, shown_intro_scenes
+
+
+def get_scene_packet(state, shown_intro_scenes):
+    scene_id = state.current_scene
+    
+    packet = {
+        "scene_id": scene_id,
+        "health": state.health,
+        "inventory": list(state.inventory),
+        "intro_shown": scene_id in shown_intro_scenes,
+        "narration": "",
+        "actions": []
+    }
+
+    if scene_id == DYNAMIC_SCENE:
+        dyn_data = play_dynamic_scene(state)
+        packet["narration"] = dyn_data.get("narration", "")
+        packet["actions"] = dyn_data.get("actions", [])
+        packet["intro_shown"] = True
+        return packet
+
+    scene_config = SCENE_REGISTRY.get(scene_id)
+    if not scene_config:
+        return packet
+
+    if not packet["intro_shown"]:
+        intro_result = get_scene_intro(scene_id, state)
+        packet["narration"] = generate_narration(
+            state=state,
+            prompt_type=intro_result["prompt_type"],
+            scene_id=intro_result["scene_id"],
+            scene_facts=intro_result["scene_facts"],
+            player_action=""
+        )
+        shown_intro_scenes.add(scene_id)
+        packet["intro_shown"] = True
+
+    packet["actions"] = scene_config["actions"](state)
+    return packet
+
+
+def apply_action(state, shown_intro_scenes, action_index, user_input=None):
+    scene_id = state.current_scene
+    player_action_label = ""
+    
+    if scene_id == DYNAMIC_SCENE:
+        dyn_data = play_dynamic_scene(state)
+        if 0 <= action_index < len(dyn_data.get("actions", [])):
+            player_action_label = dyn_data["actions"][action_index].get("label", "")
+        result = apply_dynamic_effect(state, action_index, user_input)
+    else:
+        scene_config = SCENE_REGISTRY[scene_id]
+        actions = scene_config["actions"](state)
+        chosen_action = actions[action_index]
+        player_action_label = chosen_action["label"]
+        
+        result = scene_config["handler"](
+            state,
+            chosen_action["action_id"],
+            user_input
+        )
+
+    # Generate the action consequence narration
+    if "prompt_type" in result:
+        narration = generate_narration(
+            state=state,
+            prompt_type=result["prompt_type"],
+            scene_id=result.get("scene_id", scene_id),
+            scene_facts=result.get("scene_facts", ""),
+            player_action=player_action_label,
+        )
+    else:
+        narration = result.get("narration", "")
+
+    # Handle transitions and inject dynamic scenes
+    next_scene = result.get("next_scene")
+    if next_scene:
+        valid_dynamic_transitions = [
+            (SCENE_LIBRARY, SCENE_AGORA),
+            (SCENE_AGORA, SCENE_CAFETERIA),
+            (SCENE_CAFETERIA, SCENE_BEAR_BRIDGE),
+            (SCENE_BEAR_BRIDGE, SCENE_KIRJURINLUOTO)
+        ]
+        
+        if (state.current_scene, next_scene) in valid_dynamic_transitions:
+            queue_dynamic_scene(state, state.current_scene, next_scene)
+            state.current_scene = DYNAMIC_SCENE
+        else:
+            state.current_scene = next_scene
+
+    return {
+        "narration": narration,
+        "game_over": result.get("game_over", False),
+        "game_complete": result.get("game_complete", False),
+        "next_scene": state.current_scene,
+        "health": state.health,
+        "inventory": list(state.inventory)
+    }
+
+
+# ==========================================
+# CLI MAIN LOOP
+# ==========================================
+
+def main():
+    state, shown_intro_scenes = start_game()
+    result_packet = {}
 
     while True:
         if state.health <= 0:
@@ -144,47 +250,38 @@ def main():
 
         print_status(state)
 
-        scene_id = state.current_scene
-        scene_config = SCENE_REGISTRY.get(scene_id)
+        # Get the current scene data (including intro narrations if newly visited)
+        packet = get_scene_packet(state, shown_intro_scenes)
 
-        if scene_config is None:
-            print(f"\nUnknown scene: {scene_id}")
+        if packet.get("narration"):
+            print("\n" + packet["narration"] + "\n")
+
+        actions = packet.get("actions", [])
+        if not actions:
+            print("\nNo available actions. You are stuck.")
             break
 
-        if scene_id not in shown_intro_scenes:
-            intro_result = get_scene_intro(scene_id, state)
-            narrate_result(state, intro_result)
-            shown_intro_scenes.add(scene_id)
-
-        actions = scene_config["actions"](state)
+        # Process user choice
         chosen_action = choose_action(actions)
+        action_index = actions.index(chosen_action)
         user_input = collect_action_input(chosen_action)
 
-        result = scene_config["handler"](
-            state,
-            chosen_action["action_id"],
-            user_input,
-        )
+        # Apply choice to game engine
+        result_packet = apply_action(state, shown_intro_scenes, action_index, user_input)
 
-        narrate_result(state, result, player_action=chosen_action["label"])
+        if result_packet.get("narration"):
+            print("\n" + result_packet["narration"] + "\n")
 
-        if result.get("game_over"):
-            print("GAME OVER")
+        if result_packet.get("game_over") or state.health <= 0:
             break
 
-        if result.get("game_complete"):
-            print("YOU WIN!")
+        if result_packet.get("game_complete"):
             break
-
-        next_scene = result.get("next_scene")
-        if next_scene:
-            state.current_scene = next_scene
-            continue
 
     print("\n" + "=" * 40)
-    if state.health <= 0:
+    if state.health <= 0 or result_packet.get("game_over"):
         print("GAME OVER")
-    elif result.get("game_complete"):
+    elif result_packet.get("game_complete"):
         print("Snow White has been rescued.")
     else:
         print("GAME ENDED")
