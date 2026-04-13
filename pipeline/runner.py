@@ -30,7 +30,7 @@ from pipeline.scenes.bear_bridge_scene import (
     get_bear_bridge_actions,
     handle_bear_bridge_action,
 )
-from pipeline.scenes.kirjurinluoto_sccene import (
+from pipeline.scenes.kirjurinluoto_scene import (
     get_kirjurinluoto_intro,
     get_kirjurinluoto_actions,
     handle_kirjurinluoto_action,

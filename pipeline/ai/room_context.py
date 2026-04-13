@@ -1,4 +1,4 @@
-from game_foundation import (
+from pipeline.game_foundation import (
     SCENE_LIBRARY,
     SCENE_AGORA,
     SCENE_CAFETERIA,
