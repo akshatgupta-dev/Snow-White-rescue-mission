@@ -1,4 +1,4 @@
-from ai.prompt_builder import build_narrator_prompt
+from pipeline.ai.prompt_builder import build_narrator_prompt
 
 
 def generate_narration(

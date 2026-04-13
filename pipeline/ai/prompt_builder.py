@@ -1,7 +1,7 @@
-from ai.lore import WORLD_LORE, STORY_FLOW
-from ai.room_context import ROOM_CONTEXT
-from ai.state_formatter import format_state_summary
-from ai.templates import GLOBAL_NARRATOR_PROMPT, PROMPT_TEMPLATES
+from pipeline.ai.lore import WORLD_LORE, STORY_FLOW
+from pipeline.ai.room_context import ROOM_CONTEXT
+from pipeline.ai.state_formatter import format_state_summary
+from pipeline.ai.templates import GLOBAL_NARRATOR_PROMPT, PROMPT_TEMPLATES
 
 
 def _format_list(value):

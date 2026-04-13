@@ -39,6 +39,14 @@ STATE_ATE_APPLE = "ate_apple"
 STATE_HAS_CARRIAGE = "has_carriage"
 
 
+# state AGORA
+STATE_AGORA_CHALLENGE_STARTED = "agora_challenge_started"
+STATE_AGORA_RALLY_ACTIVE = "agora_rally_active"
+STATE_AGORA_CHALLENGE_RESOLVED = "agora_challenge_resolved"
+STATE_AGORA_CHALLENGE_WON = "agora_challenge_won"
+STATE_AGORA_STUDIED_FORMATION = "agora_studied_formation"
+
+
 
 @dataclass
 class GameState:
@@ -55,6 +63,7 @@ def create_new_game():
         inventory=[], #0 inventory at the start
         health=100, #100 health at the start
         flags={
+            #general states
             STATE_HAS_MAP:False, 
             STATE_HAS_LIGHTSABER:False,
             STATE_HAS_HELPED_BEAR:False,
@@ -63,6 +72,13 @@ def create_new_game():
             STATE_SNOW_WHITE_RESCUED: False,
             STATE_ATE_APPLE: False,
             STATE_HAS_CARRIAGE: False,
+
+            #AGORA states
+            STATE_AGORA_CHALLENGE_STARTED: False,
+            STATE_AGORA_RALLY_ACTIVE: False,
+            STATE_AGORA_CHALLENGE_RESOLVED: False,
+            STATE_AGORA_CHALLENGE_WON: False,
+            STATE_AGORA_STUDIED_FORMATION: False,
         } # at the sart the player has not accomplished anything so everything is set to false
     )
     
