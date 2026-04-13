@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import List, Dict
+from typing import Any, List, Dict, Optional
 
 # scene names
 SCENE_START = "start"
@@ -9,7 +9,7 @@ SCENE_CAFETERIA = "cafeteria"
 SCENE_BEAR_BRIDGE = "bear_bridge"
 SCENE_KIRJURINLUOTO = "kirjurinluoto"
 SCENE_FINAL = "final"
-
+DYNAMIC_SCENE = "dynamic_scene"
 
 # item names
 ITEM_MAP = "map"
@@ -47,59 +47,65 @@ STATE_AGORA_CHALLENGE_WON = "agora_challenge_won"
 STATE_AGORA_STUDIED_FORMATION = "agora_studied_formation"
 
 
-
 @dataclass
 class GameState:
-    current_scene: str = SCENE_START #creates var in class which has to be a str
-    inventory: List[str] = field(default_factory=list) #stores a list of strings
-    
-    health:int =100 #player health starts at 100
-    flags:Dict[str, bool] = field(default_factory=dict)
+    current_scene: str = SCENE_START
+    inventory: List[str] = field(default_factory=list)
+    pending_return_scene: Optional[str] = None
+    dynamic_scene_data: Optional[Dict[str, Any]] = None
+    health: int = 100
+    flags: Dict[str, bool] = field(default_factory=dict)
     
     
 def create_new_game():
-    return GameState( #creates a strting game and give it
+    return GameState(
         current_scene=SCENE_START, 
-        inventory=[], #0 inventory at the start
-        health=100, #100 health at the start
+        inventory=[], 
+        pending_return_scene=None,
+        dynamic_scene_data=None,
+        health=100, 
         flags={
-            #general states
-            STATE_HAS_MAP:False, 
-            STATE_HAS_LIGHTSABER:False,
-            STATE_HAS_HELPED_BEAR:False,
+            # general states
+            STATE_HAS_MAP: False, 
+            STATE_HAS_LIGHTSABER: False,
+            STATE_HAS_HELPED_BEAR: False,
             STATE_BEAR_ALLOWED_PASSAGE: False,
             STATE_QUEEN_DEFEATED: False,
             STATE_SNOW_WHITE_RESCUED: False,
             STATE_ATE_APPLE: False,
             STATE_HAS_CARRIAGE: False,
 
-            #AGORA states
+            # AGORA states
             STATE_AGORA_CHALLENGE_STARTED: False,
             STATE_AGORA_RALLY_ACTIVE: False,
             STATE_AGORA_CHALLENGE_RESOLVED: False,
             STATE_AGORA_CHALLENGE_WON: False,
             STATE_AGORA_STUDIED_FORMATION: False,
-        } # at the sart the player has not accomplished anything so everything is set to false
+        }
     )
+
+def clear_dynamic_scene(state: GameState):
+    """Clears LLM-generated scene data and return pointers."""
+    state.dynamic_scene_data = None
+    state.pending_return_scene = None
     
-def add_item(state: GameState, item: str) -> None: # adding items into the inventory
+def add_item(state: GameState, item: str) -> None:
     if item not in state.inventory:
         state.inventory.append(item)
         
-def remove_item(state: GameState, item: str) -> bool: # removing items from the inventory
+def remove_item(state: GameState, item: str) -> bool:
     if item in state.inventory:
         state.inventory.remove(item)
         return True
     return False
         
-def has_item(state: GameState, item: str) -> bool: # seeing what items are in the inventory
+def has_item(state: GameState, item: str) -> bool:
     return item in state.inventory
 
-
-def set_flag(state: GameState, flag_name: str, value: bool = True) -> None: # for changing flag value
+def set_flag(state: GameState, flag_name: str, value: bool = True) -> None:
     state.flags[flag_name] = value
     
-def get_flag(state: GameState, flag_name: str) -> bool: #read flag value
+def get_flag(state: GameState, flag_name: str) -> bool:
     return state.flags.get(flag_name, False)
 
 def damage_player(state: GameState, amount: int) -> None:
@@ -113,16 +119,16 @@ def transform_item(
         old_item: str,
         new_item: str,
         flag_name: str | None = None,
-) -> bool: # for transforming items in the inventory
+) -> bool:
     if old_item not in state.inventory:
         return False
 
-        state.inventory.remove(old_item)
+    state.inventory.remove(old_item)
 
     if new_item not in state.inventory:
-            state.inventory.append(new_item)
+        state.inventory.append(new_item)
 
     if flag_name is not None:
-            state.flags[flag_name] = True
+        state.flags[flag_name] = True
 
     return True
