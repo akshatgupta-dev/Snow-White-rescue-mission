@@ -1,4 +1,4 @@
-from src.game_foundation import (
+from pipeline.game_foundation import (
     SCENE_KIRJURINLUOTO,
     SCENE_FINAL,
     STATE_BEAR_ALLOWED_PASSAGE,

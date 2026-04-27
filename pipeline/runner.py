@@ -126,6 +126,73 @@ def get_scene_intro(scene_id, state):
     return intro_fn()
 
 
+def _clean_health_reason_text(text):
+    reason = (text or "").strip()
+    if not reason:
+        return "action consequence"
+
+    if reason.lower().startswith("cinderella "):
+        reason = reason[len("Cinderella "):]
+
+    reason = reason.rstrip(".")
+
+    if len(reason) > 72:
+        reason = reason[:69].rstrip() + "..."
+
+    return reason
+
+
+def _extract_health_change_reason(result, player_action_label):
+    explicit_reason = str(result.get("health_change_reason", "")).strip()
+    if explicit_reason:
+        return _clean_health_reason_text(explicit_reason)
+
+    scene_facts = result.get("scene_facts", [])
+    if isinstance(scene_facts, list):
+        for fact in scene_facts:
+            fact_text = str(fact).strip()
+            if fact_text:
+                return _clean_health_reason_text(fact_text)
+
+    if player_action_label:
+        return _clean_health_reason_text(player_action_label)
+
+    return "action consequence"
+
+
+def _get_action_history(state):
+    history = getattr(state, "_action_history", None)
+    if history is None or not isinstance(history, dict):
+        history = {}
+        setattr(state, "_action_history", history)
+    return history
+
+
+def _get_available_actions(state, scene_id, actions):
+    history = _get_action_history(state)
+    used_ids = history.get(scene_id, set())
+    if not used_ids:
+        return actions
+
+    filtered = [a for a in actions if a.get("action_id") not in used_ids]
+    # Safety fallback: if everything would disappear, keep actions visible.
+    return filtered or actions
+
+
+def _mark_action_used(state, scene_id, action):
+    action_id = action.get("action_id")
+    if not action_id:
+        return
+
+    if action.get("repeatable", False):
+        return
+
+    history = _get_action_history(state)
+    if scene_id not in history:
+        history[scene_id] = set()
+    history[scene_id].add(action_id)
+
+
 # ==========================================
 # REUSABLE ENGINE FUNCTIONS
 # ==========================================
@@ -172,12 +239,14 @@ def get_scene_packet(state, shown_intro_scenes):
         shown_intro_scenes.add(scene_id)
         packet["intro_shown"] = True
 
-    packet["actions"] = scene_config["actions"](state)
+    actions = scene_config["actions"](state)
+    packet["actions"] = _get_available_actions(state, scene_id, actions)
     return packet
 
 
 def apply_action(state, shown_intro_scenes, action_index, user_input=None):
     scene_id = state.current_scene
+    health_before = state.health
     player_action_label = ""
     
     if scene_id == DYNAMIC_SCENE:
@@ -188,8 +257,11 @@ def apply_action(state, shown_intro_scenes, action_index, user_input=None):
     else:
         scene_config = SCENE_REGISTRY[scene_id]
         actions = scene_config["actions"](state)
+        actions = _get_available_actions(state, scene_id, actions)
         chosen_action = actions[action_index]
         player_action_label = chosen_action["label"]
+
+        _mark_action_used(state, scene_id, chosen_action)
         
         result = scene_config["handler"](
             state,
@@ -225,11 +297,20 @@ def apply_action(state, shown_intro_scenes, action_index, user_input=None):
         else:
             state.current_scene = next_scene
 
+    health_delta = state.health - health_before
+    status_lines = []
+
+    if health_delta < 0:
+        reason = _extract_health_change_reason(result, player_action_label)
+        status_lines.append(f"{health_delta} damage: {reason}")
+
     return {
         "narration": narration,
         "game_over": result.get("game_over", False),
         "game_complete": result.get("game_complete", False),
         "next_scene": state.current_scene,
+        "health_delta": health_delta,
+        "status_lines": status_lines,
         "health": state.health,
         "inventory": list(state.inventory)
     }
@@ -271,6 +352,12 @@ def main():
 
         if result_packet.get("narration"):
             print("\n" + result_packet["narration"] + "\n")
+
+        for status_line in result_packet.get("status_lines", []):
+            print(status_line)
+
+        if result_packet.get("status_lines"):
+            print()
 
         if result_packet.get("game_over") or state.health <= 0:
             break

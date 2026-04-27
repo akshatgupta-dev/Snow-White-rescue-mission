@@ -1,4 +1,4 @@
-from src.game_foundation import (
+from pipeline.game_foundation import (
     SCENE_AGORA,
     SCENE_CAFETERIA,
     ITEM_LIGHTSABER,

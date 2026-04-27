@@ -1,1 +1,5 @@
 requests
+pyttsx3
+edge-tts
+pillow
+opencv-python-headless

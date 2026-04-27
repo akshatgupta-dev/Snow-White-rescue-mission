@@ -1,6 +1,25 @@
 # Snow-White-rescue-mission
 Tkinter GUI text-adventure game in Python: Cinderella with a lightsaber rescues Snow White (save/load + inventory + puzzles)
 
+## Run
+
+- GUI (preferred): `python3 main_ui.py`
+- Force terminal mode: `UI_FORCE_CLI=1 python3 main_ui.py`
+
+### WSL GUI troubleshooting
+
+If the GUI does not open (or `tk.Tk()` hangs), it is usually a WSLg/Xwayland issue rather than the game code.
+
+- From Windows PowerShell run: `wsl --shutdown`
+- Reopen your distro, then try `python3 main_ui.py` again
+- If it still fails: `wsl --update` (and reboot Windows if needed)
+
+Notes:
+- `wsl` is a Windows command; it will not work as-is inside Ubuntu.
+- From inside WSL you can run the Windows CLI explicitly:
+  - `/mnt/c/Windows/System32/wsl.exe --shutdown`
+  - `/mnt/c/Windows/System32/wsl.exe --update`
+
 
 
 

@@ -1,4 +1,4 @@
-from game_foundation import GameState
+from pipeline.game_foundation import GameState
 
 
 def format_inventory(state: GameState) -> str:
