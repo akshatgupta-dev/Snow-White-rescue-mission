@@ -5,6 +5,8 @@ import subprocess
 import sys
 import traceback
 
+def _is_frozen() -> bool:
+    return bool(getattr(sys, "frozen", False))
 
 def _as_bool(value: str) -> bool:
     # small helper so env vars like 1, true, yes all work the same
@@ -102,7 +104,7 @@ def main():
         preflight_timeout = 5
 
     # WSL uses preflight by default because display problems happened there alot
-    use_preflight = (not skip_preflight) and (
+    use_preflight = (not _is_frozen()) and (not skip_preflight) and (
         _as_bool(os.environ.get("UI_GUI_PREFLIGHT", "0")) or _is_wsl()
     )
 

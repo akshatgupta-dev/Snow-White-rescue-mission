@@ -158,6 +158,7 @@ class GameApp(tk.Tk):
 
         # build the UI first, then start the slower stuff after tkinter is alive
         self._setup_ui()
+        self.after(500, self._debug_cursor_test)
         self.llm_enabled = False
 
         # after() is used here because tkinter should do UI changes inside its own loop
@@ -317,8 +318,35 @@ class GameApp(tk.Tk):
             pass
 
     def _build_cursor_options(self):
-        # list of cursor styles, missing files are skipped below
+        # Windows Tkinter does not reliably support custom XBM cursors.
+        # Use built-in cursors on Windows so the packaged .exe works.
+        if sys.platform.startswith("win"):
+            return [
+                {
+                    "name": "Magic Crosshair",
+                    "description": "Precise magical aiming cursor.",
+                    "builtin": "crosshair",
+                },
+                {
+                    "name": "Hand",
+                    "description": "Simple clickable hand cursor.",
+                    "builtin": "hand2",
+                },
+                {
+                    "name": "Watch",
+                    "description": "Retro waiting cursor.",
+                    "builtin": "watch",
+                },
+                {
+                    "name": "Classic Arrow",
+                    "description": "Default Windows cursor.",
+                    "builtin": "arrow",
+                },
+            ]
+
+        # Linux / WSL / X11 custom XBM cursors
         assets_dir = Path(__file__).resolve().parent / "assets"
+
         options = [
             {
                 "name": "Lightsaber",
@@ -360,17 +388,44 @@ class GameApp(tk.Tk):
         ]
 
         available = []
-        # check files before showing option, otherwise user can pick a broken cursor
+
         for option in options:
             cursor_file = option.get("cursor_file")
-            if cursor_file and (not Path(cursor_file).exists()):
+            mask_file = option.get("mask_file")
+
+            if cursor_file and not Path(cursor_file).exists():
                 continue
+
+            if mask_file and not Path(mask_file).exists():
+                continue
+
             available.append(option)
 
         if not available:
             return [{"name": "Classic Arrow", "description": "Default arrow cursor.", "builtin": "arrow"}]
 
         return available
+
+    def _debug_cursor_test(self):
+        self.output_queue.put("\nCursor debug test started.\n")
+
+        test_cursors = ["crosshair", "hand2", "watch", "pirate", "arrow"]
+
+        def apply_test(index=0):
+            cursor_name = test_cursors[index % len(test_cursors)]
+
+            try:
+                self.configure(cursor=cursor_name)
+                self.input_field.configure(cursor=cursor_name)
+                self.log.configure(cursor=cursor_name)
+                self.output_queue.put(f"Trying built-in cursor: {cursor_name}\n")
+            except tk.TclError as exc:
+                self.output_queue.put(f"Built-in cursor failed: {cursor_name} -> {exc}\n")
+
+            if index + 1 < len(test_cursors):
+                self.after(1200, lambda: apply_test(index + 1))
+
+        apply_test()
 
     def _bind_cursor_selector_keys(self):
         # arrow keys are only for cursor menu while it is open
@@ -1068,7 +1123,9 @@ class GameApp(tk.Tk):
 
         for segment in segments:
             self.tts_queue.put(segment)
-
+    def _is_frozen_app():
+        return bool(getattr(sys, "frozen", False))
+    
     def _toggle_tts(self):
         # mute or unmute narration voice
         self.tts_enabled = not self.tts_enabled
@@ -1081,7 +1138,6 @@ class GameApp(tk.Tk):
             self.output_queue.put("\nTTS muted.\n")
 
     def _apply_cursor_option(self, option):
-        # tries the fancy cursor first, then falls back to normal arrow
         cursor_candidates = []
 
         builtin = option.get("builtin")
@@ -1093,9 +1149,15 @@ class GameApp(tk.Tk):
             fg = option.get("fg", "white")
             bg = option.get("bg", "black")
 
+            if cursor_file:
+                cursor_file = str(Path(cursor_file).resolve())
+
+            if mask_file:
+                mask_file = str(Path(mask_file).resolve())
+
             if cursor_file and Path(cursor_file).exists():
                 if mask_file and Path(mask_file).exists():
-                    cursor_candidates.append(f"@{cursor_file} {mask_file} {fg} {bg}")
+                    cursor_candidates.append(f"@{cursor_file} @{mask_file} {fg} {bg}")
 
                 cursor_candidates.append(f"@{cursor_file} {fg} {bg}")
                 cursor_candidates.append(f"@{cursor_file}")
@@ -1103,7 +1165,6 @@ class GameApp(tk.Tk):
         cursor_candidates.append("arrow")
 
         for cursor_spec in cursor_candidates:
-            # try each cursor format because X11/Tk accepts different bitmap formats
             try:
                 self.configure(cursor=cursor_spec)
                 self.option_add("*cursor", cursor_spec)
@@ -1111,6 +1172,10 @@ class GameApp(tk.Tk):
                 return
             except tk.TclError:
                 continue
+
+        self.configure(cursor="arrow")
+        self.option_add("*cursor", "arrow")
+        self._set_cursor_recursive(self, "arrow")
 
     def _set_cursor_recursive(self, widget, cursor_spec):
         # apply cursor to every child widget, or some buttons keep old cursor
@@ -1167,13 +1232,26 @@ class GameApp(tk.Tk):
             self._stop_background_video()
 
     def _video_dependencies_healthy(self):
-        # subprocess check protects main process from native library crashes
+        # In a PyInstaller app, sys.executable points to the .exe itself.
+        # Do not run [sys.executable, "-c", ...] because it can relaunch the app repeatedly.
+        if _is_frozen_app():
+            try:
+                importlib.import_module("cv2")
+                importlib.import_module("PIL.Image")
+                importlib.import_module("PIL.ImageTk")
+                return True
+            except Exception:
+                self.output_queue.put(
+                    "\nVideo background disabled: OpenCV/Pillow unavailable in packaged app.\n"
+                )
+                return False
+
         probe_cmd = [
             sys.executable,
             "-c",
             "import cv2; from PIL import Image, ImageTk; print('ok')",
         ]
-        # cv2 can sometimes crash at import level, subprocess keeps main game safe
+
         try:
             result = subprocess.run(
                 probe_cmd,
