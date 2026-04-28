@@ -1,12 +1,12 @@
 """
-Retro Tkinter UI for the game (Zork-like aesthetic).
+retro tkinter UI for the game.
 
-Simple window with:
-- Black background, green monospace text
-- Story scrollable text area
-- Input field at bottom
+simple window with:
+- black background, green monospace text
+- story scrollable text area
+- input field at bottom
 - Minimal buttons (New Game, Quit)
-- Typewriter effect on text output
+- typewriter effect on text output
 
 Integrates with GameEngine using packet-based calls.
 Engine execution runs in background threads so Tkinter stays responsive.
@@ -14,6 +14,7 @@ Engine execution runs in background threads so Tkinter stays responsive.
 
 import queue
 import threading
+import textwrap
 import tkinter as tk
 import tkinter.font as tkFont
 import asyncio
@@ -26,7 +27,6 @@ import sys
 import tempfile
 import webbrowser
 from pathlib import Path
-from tkinter import scrolledtext
 
 from src.game_engine import GameEngine
 
@@ -34,28 +34,35 @@ from src.game_engine import GameEngine
 class GameApp(tk.Tk):
     """Retro terminal-style game window."""
 
+    _BOOL_TRUE = {"1", "true", "yes", "on"}
+
     def __init__(self):
         super().__init__()
         self.title("Cinderella Rescues Snow White")
         self.geometry("800x600")
         self.config(bg="#000000")
 
+        # engine starts later so teh UI can open first
         self.engine = None
 
+        # these flags help when running inside WSL, bc windows can be weird there
         self._wsl_runtime = self._is_wsl()
         self._safe_mode = os.environ.get("UI_SAFE_MODE", "").lower() in {"1", "true", "yes", "on"}
-        # WSL/Xwayland sessions in this project frequently start Tk windows iconified.
-        # Default to safe mode under WSL unless explicitly overridden.
         if self._wsl_runtime and os.environ.get("UI_FORCE_SAFE_WSL", "").lower() in {"1", "true", "yes", "on"}:
             self._safe_mode = True
         self._aggressive_wm = (
             os.environ.get("UI_AGGRESSIVE_WM", "").lower() in {"1", "true", "yes", "on"}
         ) and (not self._safe_mode)
-        
+
+        # queues are used so background threads dont touch tkinter directly
         self.output_queue = queue.Queue()
-        self.typewriter_queue = queue.Queue()  # Queue for typewriter effect
+        self.typewriter_queue = queue.Queue()
         self.tts_queue = queue.Queue()
         self.tts_stop_event = threading.Event()
+        # output_queue is for normal text, typewriter_queue is for printing it slowly
+        # tts_queue is seperate becuase voice can be slower than the game text
+
+        # tts setup values, it is off in safe mode so it doesnt crash the UI
         self.tts_enabled = not self._safe_mode
         self.tts_available = False
         self._pyttsx3 = None
@@ -75,10 +82,16 @@ class GameApp(tk.Tk):
         self._edge_rate = "-8%"
         self._edge_pitch = "+0Hz"
         self._edge_volume = "+0%"
+
+        # LLM is kept off by default because normal game should still work alone
         self.llm_enabled = False
         self.llm_model = os.environ.get("OLLAMA_MODEL", "qwen2.5:0.5b-instruct-q4_K_M")
+
+        # cursor stuff for the start screen carousel
         self.cursor_options = self._build_cursor_options()
         self.cursor_index = 0
+
+        # background video config, can be controled from env vars
         self._video_path = Path(__file__).resolve().parent / "assets" / "Vietnamese_Jedi_with_Red_Lightsaber.mp4"
         self._video_capture = None
         self._video_after_id = None
@@ -86,35 +99,72 @@ class GameApp(tk.Tk):
         self._video_label = None
         self._video_enabled = False
         video_default = "0" if self._safe_mode else "1"
-        self._video_requested = False
-        self._video_frame_interval_ms = 95
-        self._video_darkness = 0.18
+        self._video_requested = os.environ.get("UI_BG_VIDEO", video_default).lower() in self._BOOL_TRUE
+
+        # alpha and darkness are from env vars so i can test visibility without editing code
+        alpha_text = (os.environ.get("UI_BG_VIDEO_ALPHA") or "").strip()
+        try:
+            alpha_value = float(alpha_text) if alpha_text else 0.88
+        except ValueError:
+            alpha_value = 0.88
+        self._video_overlay_alpha = min(1.0, max(0.75, alpha_value))
+
+        self._video_window = None
+        self._video_configure_bound = False
+        self._video_geometry_sync_pending = False
+        self._video_frame_interval_ms = 140
+
+        # video darknes works more like brightness here, higher is brighter
+        darkness_text = (os.environ.get("UI_BG_VIDEO_DARKNESS") or "").strip()
+        try:
+            darkness_value = float(darkness_text) if darkness_text else 0.75
+        except ValueError:
+            darkness_value = 0.65
+        self._video_darkness = min(1.0, max(0.05, darkness_value))
+
+        # blur makes the video less distracting behind the green terminal text
+        blur_text = (os.environ.get("UI_BG_VIDEO_BLUR") or "").strip()
+        try:
+            blur_value = int(blur_text) if blur_text else 11
+        except ValueError:
+            blur_value = 11
+        blur_value = min(31, max(0, blur_value))
+        if blur_value != 0 and (blur_value % 2 == 0):
+            blur_value += 1
+        self._video_blur_ksize = blur_value
+
+        # video modules are imported later after checking they are safe
         self._video_cv2 = None
         self._video_image_cls = None
         self._video_image_tk = None
         self._video_preflight_queue = queue.Queue()
         self._video_preflight_pending = False
+
         self._wm_fallback_applied = False
         self._safe_window_mode_applied = False
+
+        # cursor is optional bc custom bitmap cursor can fail on some linux setups
         cursor_default = "0" if self._safe_mode else "1"
         self._custom_cursor_enabled = (
             os.environ.get("UI_CUSTOM_CURSOR", cursor_default).lower() in {"1", "true", "yes", "on"}
         )
         self._cursor_selector_keys_bound = False
-        
-        # UI State Management
-        self.current_packet = None
-        self.input_state = "IDLE"  # IDLE, WAITING_FOR_ACTION, WAITING_FOR_TEXT, PROCESSING
-        self.pending_action_index = -1
-        
-        # --- Minimal Known-Good Startup Sequence ---
-        self._setup_ui()
 
-        self._video_requested = False
+        # this tells what kind of user input the game is waiting for
+        self.current_packet = None
+        self.input_state = "IDLE"
+        self.pending_action_index = -1
+        # current_packet keeps the last engine response so the typed number can map to an action
+
+        # build the UI first, then start the slower stuff after tkinter is alive
+        self._setup_ui()
         self.llm_enabled = False
 
-        self.after(0, lambda: self._append_text("UI booted successfully.\n", "system"))
+        # after() is used here because tkinter should do UI changes inside its own loop
+        self.after(0, lambda: self._append_text("UI booted successfully.", "system"))
         self.after(100, self._show_window)
+        if self._video_requested:
+            self.after(160, self._start_background_video)
         if self._custom_cursor_enabled:
             self.after(200, self._show_cursor_selector)
         else:
@@ -122,8 +172,26 @@ class GameApp(tk.Tk):
         self.after(40, self._drain_output_queue)
         self.after(5, self._typewriter_loop)
 
+    def _place_video_behind_root(self):
+        # this is for the older helper-window video mode
+        if self._video_window is None:
+            return
+
+        try:
+            if not self._video_window.winfo_exists():
+                return
+
+            self._video_window.deiconify()
+            # lift it once first, then lower it exactly below the main window
+            # this avoids sending it behind the desktop by accident
+            self._video_window.lift()
+            self._video_window.lower(self)
+            self.lift()
+        except tk.TclError:
+            pass
+
     def _apply_safe_window_mode(self):
-        """Force an always-mapped borderless window for fragile WSL/Xwayland sessions."""
+        # safe window mode makes a normal visible window when WSL acts broken
         try:
             screen_w = self.winfo_screenwidth()
             screen_h = self.winfo_screenheight()
@@ -145,7 +213,6 @@ class GameApp(tk.Tk):
             pos_y = 20
 
         try:
-            # self.overrideredirect(True)
             self.geometry(f"{win_w}x{win_h}+{pos_x}+{pos_y}")
             self.deiconify()
             self.update_idletasks()
@@ -157,7 +224,7 @@ class GameApp(tk.Tk):
             pass
 
     def _normalize_window_state(self):
-        """Ensure the root window is not left minimized/withdrawn by the WM."""
+        # make sure window is not stuck minimized or hidden. ahd some problems in that so i ahd to hardcode to not be irritating to other people too
         try:
             current_state = self.state()
         except tk.TclError:
@@ -174,7 +241,7 @@ class GameApp(tk.Tk):
                 pass
 
     def _window_mapping_failed(self):
-        """Return True when the window is still effectively hidden/unmapped."""
+        # returns true if tkinter says window exists but user cant really see it
         try:
             state = self.state()
             mapped = bool(self.winfo_ismapped())
@@ -196,7 +263,7 @@ class GameApp(tk.Tk):
         return False
 
     def _apply_wm_fallback_if_needed(self):
-        """Fallback for sessions where the WM keeps Tk windows iconified/unmapped."""
+        # last try if the window manager keeps the app invisible. it was a problem in my linux setup but redundancies are always good to ahve
         if self._safe_mode:
             return
 
@@ -224,7 +291,6 @@ class GameApp(tk.Tk):
             if win_h < 200:
                 win_h = 600
 
-            # Prefer a primary-screen friendly position instead of virtual-desktop center.
             pos_x = 60
             pos_y = 60
             if pos_x > screen_w - 120:
@@ -232,8 +298,6 @@ class GameApp(tk.Tk):
             if pos_y > screen_h - 120:
                 pos_y = max(20, (screen_h - win_h) // 2)
 
-            # Force direct mapping without relying on WM decorations.
-            # self.overrideredirect(True)
             self.geometry(f"{win_w}x{win_h}+{pos_x}+{pos_y}")
             self.deiconify()
             self.update_idletasks()
@@ -253,6 +317,7 @@ class GameApp(tk.Tk):
             pass
 
     def _build_cursor_options(self):
+        # list of cursor styles, missing files are skipped below
         assets_dir = Path(__file__).resolve().parent / "assets"
         options = [
             {
@@ -294,9 +359,8 @@ class GameApp(tk.Tk):
             },
         ]
 
-        # Filter out cursor options whose bitmap files are not present (common in
-        # partially-packaged builds). Keep built-ins.
         available = []
+        # check files before showing option, otherwise user can pick a broken cursor
         for option in options:
             cursor_file = option.get("cursor_file")
             if cursor_file and (not Path(cursor_file).exists()):
@@ -309,6 +373,7 @@ class GameApp(tk.Tk):
         return available
 
     def _bind_cursor_selector_keys(self):
+        # arrow keys are only for cursor menu while it is open
         if self._cursor_selector_keys_bound:
             return
 
@@ -320,6 +385,7 @@ class GameApp(tk.Tk):
         self._cursor_selector_keys_bound = True
 
     def _unbind_cursor_selector_keys(self):
+        # remove global binds so they dont mess with the actual game input
         if not getattr(self, "_cursor_selector_keys_bound", False):
             return
 
@@ -332,12 +398,13 @@ class GameApp(tk.Tk):
         self._cursor_selector_keys_bound = False
 
     def _show_cursor_selector(self):
-        """Show startup carousel for cursor selection."""
+        # first screen where player picks teh mouse cursor
         if hasattr(self, "cursor_overlay") and self.cursor_overlay.winfo_exists():
             self.cursor_overlay.lift()
             self._bind_cursor_selector_keys()
             return
 
+        # overlay covers the normal game UI until player chooses cursor
         self.cursor_overlay = tk.Frame(self, bg="#030303")
         self.cursor_overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
 
@@ -443,6 +510,7 @@ class GameApp(tk.Tk):
             pass
 
     def _refresh_cursor_selector(self):
+        # refresh labels and also try the cursor live
         option = self.cursor_options[self.cursor_index]
         self.cursor_name_var.set(option["name"])
         self.cursor_desc_var.set(option["description"])
@@ -458,6 +526,7 @@ class GameApp(tk.Tk):
         self._refresh_cursor_selector()
 
     def _select_cursor_and_start(self):
+        # after picking cursor, close overlay and start game
         option = self.cursor_options[self.cursor_index]
         self._apply_cursor_option(option)
         self.output_queue.put(f"\nCursor selected: {option['name']}\n")
@@ -467,11 +536,12 @@ class GameApp(tk.Tk):
         self.after(60, self._new_game)
 
     def _report_llm_status(self):
-        """Report Ollama status when LLM narration is enabled."""
+        # checks Ollama without freezing the interface
         if not self.llm_enabled:
             return
 
         def _worker():
+            # import inside worker so missing narrator code doesnt break the whole UI at startup
             try:
                 from pipeline.ai.narrator import check_ollama_status
                 status = check_ollama_status(force=True)
@@ -485,11 +555,13 @@ class GameApp(tk.Tk):
         threading.Thread(target=_worker, daemon=True).start()
 
     def _update_llm_status_label(self, message: str):
+        # update label from tkinter thread only
         if not hasattr(self, "llm_status_var"):
             return
         self.after(0, lambda m=message: self.llm_status_var.set(m))
 
     def _toggle_llm(self):
+        # flips narrator mode and update button text
         self.llm_enabled = not self.llm_enabled
         os.environ["USE_LLM_NARRATOR"] = "1" if self.llm_enabled else "0"
         self.llm_button.configure(text=f"LLM: {'ON' if self.llm_enabled else 'OFF'}")
@@ -500,12 +572,14 @@ class GameApp(tk.Tk):
         self._refresh_llm_status()
 
     def _refresh_llm_status(self):
+        # show useful LLM state under buttons
         if not self.llm_enabled:
             self._update_llm_status_label("LLM: Off")
             return
         self._report_llm_status()
 
     def _open_ollama_download(self):
+        # open Ollama website in the right browser for WSL or normal OS
         url = "https://ollama.com/download"
 
         if self._is_wsl():
@@ -539,6 +613,7 @@ class GameApp(tk.Tk):
             self.output_queue.put(f"\nOpen this URL in your browser: {url}\n")
 
     def _start_ollama(self):
+        # start local Ollama server if it is installed
         if not shutil.which("ollama"):
             self.output_queue.put("\nLLM: Ollama CLI not found. Install Ollama first.\n")
             return
@@ -560,6 +635,7 @@ class GameApp(tk.Tk):
         threading.Thread(target=_worker, daemon=True).start()
 
     def _pull_ollama_model(self):
+        # downloads teh model used by the narrator
         if not shutil.which("ollama"):
             self.output_queue.put("\nLLM: Ollama CLI not found. Install Ollama first.\n")
             return
@@ -591,7 +667,7 @@ class GameApp(tk.Tk):
         threading.Thread(target=_worker, daemon=True).start()
 
     def _show_window(self):
-        """Bring the game window to the front on startup."""
+        # puts game window somewhere sane and visible at startup
         if self._safe_mode:
             self._apply_safe_window_mode()
             return
@@ -639,11 +715,10 @@ class GameApp(tk.Tk):
         except tk.TclError:
             pass
 
-        # If WM still refuses to map the window, attempt fallback quickly.
         self.after(40, self._apply_wm_fallback_if_needed)
 
     def _ensure_on_screen(self):
-        """Force the window to a visible position if the WM places it off-screen."""
+        # can be called after resize/move if window gets lost off screen
         if self._safe_mode:
             self._apply_safe_window_mode()
             return
@@ -680,10 +755,11 @@ class GameApp(tk.Tk):
             pass
 
     def _setup_tts(self):
-        """Initialize optional text-to-speech worker thread."""
+        # setup voice stuff, all optional so game should run without it
         if self._safe_mode:
             return
 
+        # in WSL the Windows sound system is usually easier than linux audio
         if self._is_wsl() and shutil.which("powershell.exe"):
             try:
                 self._edge_tts = importlib.import_module("edge_tts")
@@ -730,19 +806,19 @@ class GameApp(tk.Tk):
         threading.Thread(target=self._tts_worker, daemon=True).start()
 
     def _is_wsl(self):
-        """Return True when running under Windows Subsystem for Linux."""
+        # WSL sets this env var, so this is enough for our case
         return bool(os.environ.get("WSL_DISTRO_NAME"))
 
     def _prepare_tts_segments(self, text):
-        """Normalize and split narration into short chunks for smoother playback."""
+        # clean narration and split it so voice queue does not get massive
         cleaned = " ".join((text or "").split())
         if not cleaned:
             return []
 
         if len(cleaned) > self._tts_max_chars:
+            # cut long narration, otherwise voice keeps talking after player moved on
             cleaned = cleaned[: self._tts_max_chars].rsplit(" ", 1)[0] + "."
 
-        # Windows SAPI is launched via subprocess, so one chunk per narration is smoother.
         if self._tts_backend in ("windows-sapi", "edge-tts"):
             return [cleaned]
 
@@ -752,7 +828,7 @@ class GameApp(tk.Tk):
         return parts
 
     def _discover_edge_voice(self):
-        """Pick the best available Edge neural voice from a preferred shortlist."""
+        # tries to use best Edge voice from my prefered list
         default_voice = self._edge_voice_candidates[0]
 
         async def _list_voice_names():
@@ -776,7 +852,7 @@ class GameApp(tk.Tk):
         return default_voice
 
     def _speak_windows_sapi(self, text):
-        """Speak via Windows SAPI with preferred voices when running in WSL."""
+        # use Windows built in voice from WSL, it is more reliable sometimes
         ps_script = (
             "Add-Type -AssemblyName System.Speech;"
             "$s=New-Object System.Speech.Synthesis.SpeechSynthesizer;"
@@ -801,14 +877,15 @@ class GameApp(tk.Tk):
         )
 
     def _wsl_path_to_windows_file_uri(self, linux_path):
-        """Convert a WSL path to a Windows-readable file URI via \\wsl$ share."""
+        # converts linux path into a Windows file uri so Windows can play it
         distro = os.environ.get("WSL_DISTRO_NAME", "Ubuntu")
         path_text = str(Path(linux_path).resolve())
-        unc_path = f"\\\\wsl$\\{distro}{path_text.replace('/', '\\')}"
+        windows_path = path_text.replace("/", "\\")
+        unc_path = f"\\\\wsl$\\{distro}{windows_path}"
         return "file://" + unc_path.replace("\\", "/")
 
     def _synthesize_edge_audio_file(self, text):
-        """Synthesize narration to mp3 using Edge Neural TTS."""
+        # edge tts writes a temp mp3, then Windows media player plays it
         if self._edge_tts is None:
             return None
 
@@ -830,7 +907,7 @@ class GameApp(tk.Tk):
         return temp_path
 
     def _play_windows_media_uri(self, media_uri):
-        """Play media URI on Windows audio stack and wait until playback finishes."""
+        # play generated mp3 on Windows audio stack and wait till it finishes
         ps_script = (
             "Add-Type -AssemblyName PresentationCore;"
             "$u=$args[0];"
@@ -854,7 +931,7 @@ class GameApp(tk.Tk):
         )
 
     def _linux_audio_device_available(self):
-        """Return True when Linux has either ALSA cards or a WSLg Pulse socket."""
+        # basic audio check so linux tts doesnt spam errors
         pulse_server = (os.environ.get("PULSE_SERVER") or "").strip()
         if pulse_server.startswith("unix:/mnt/wslg/"):
             pulse_socket = pulse_server.replace("unix:", "", 1)
@@ -862,7 +939,6 @@ class GameApp(tk.Tk):
                 return True
 
         if not shutil.which("aplay"):
-            # Other players may still work; only hard-check ALSA if aplay exists.
             return True
 
         try:
@@ -880,11 +956,10 @@ class GameApp(tk.Tk):
         if "no soundcards found" in combined:
             return False
 
-        # Require at least one listed card when querying ALSA device list.
         return "card " in combined
 
     def _tts_worker(self):
-        """Background speech loop so UI remains responsive during narration playback."""
+        # real speech loop, running away from tkinter thread
         engine = None
         if self._tts_backend == "edge-tts":
             self.tts_available = True
@@ -916,6 +991,7 @@ class GameApp(tk.Tk):
                 return
 
         while not self.tts_stop_event.is_set():
+            # timeout lets the thread check stop_event often, so quit doesnt hang
             try:
                 text = self.tts_queue.get(timeout=0.2)
             except queue.Empty:
@@ -967,7 +1043,6 @@ class GameApp(tk.Tk):
                     engine.say(text)
                     engine.runAndWait()
             except Exception:
-                # If speech fails once, keep the game playable and silently continue.
                 continue
 
         if engine is not None:
@@ -977,7 +1052,7 @@ class GameApp(tk.Tk):
                 pass
 
     def _queue_tts(self, text):
-        """Queue narration text for voice playback."""
+        # put latest narration into tts queue and clear old text
         if not self.tts_enabled or not self.tts_available:
             return
 
@@ -985,7 +1060,6 @@ class GameApp(tk.Tk):
         if not segments:
             return
 
-        # Keep only the latest narration to avoid long speech backlog.
         while True:
             try:
                 self.tts_queue.get_nowait()
@@ -996,7 +1070,7 @@ class GameApp(tk.Tk):
             self.tts_queue.put(segment)
 
     def _toggle_tts(self):
-        """Enable or disable narration voice."""
+        # mute or unmute narration voice
         self.tts_enabled = not self.tts_enabled
         state_label = "ON" if self.tts_enabled else "OFF"
         self.tts_button.configure(text=f"TTS: {state_label}")
@@ -1007,7 +1081,7 @@ class GameApp(tk.Tk):
             self.output_queue.put("\nTTS muted.\n")
 
     def _apply_cursor_option(self, option):
-        """Apply a cursor option from the carousel."""
+        # tries the fancy cursor first, then falls back to normal arrow
         cursor_candidates = []
 
         builtin = option.get("builtin")
@@ -1029,8 +1103,8 @@ class GameApp(tk.Tk):
         cursor_candidates.append("arrow")
 
         for cursor_spec in cursor_candidates:
+            # try each cursor format because X11/Tk accepts different bitmap formats
             try:
-                # Validate cursor on the root first; then apply broadly.
                 self.configure(cursor=cursor_spec)
                 self.option_add("*cursor", cursor_spec)
                 self._set_cursor_recursive(self, cursor_spec)
@@ -1039,7 +1113,7 @@ class GameApp(tk.Tk):
                 continue
 
     def _set_cursor_recursive(self, widget, cursor_spec):
-        """Apply a cursor to the widget tree so existing controls match the root cursor."""
+        # apply cursor to every child widget, or some buttons keep old cursor
         try:
             widget.configure(cursor=cursor_spec)
         except tk.TclError:
@@ -1048,7 +1122,7 @@ class GameApp(tk.Tk):
             self._set_cursor_recursive(child, cursor_spec)
 
     def _start_background_video(self):
-        """Start asynchronous preflight for optional background video."""
+        # starts video check in seperate thread so bad cv2 doesnt freeze start
         if not self._video_requested or self._video_preflight_pending:
             return
 
@@ -1057,12 +1131,12 @@ class GameApp(tk.Tk):
         self.after(40, self._poll_background_video_preflight)
 
     def _background_video_worker(self):
-        """Run dependency checks off the Tk main thread, then notify UI thread."""
+        # only checks if imports are safe, real tkinter work happens later
         healthy = self._video_dependencies_healthy()
         self._video_preflight_queue.put(healthy)
 
     def _poll_background_video_preflight(self):
-        """Poll worker result from the Tk thread, then continue setup safely."""
+        # wait for video test result without blocking mainloop
         if not self._video_preflight_pending:
             return
 
@@ -1076,7 +1150,7 @@ class GameApp(tk.Tk):
         self._setup_background_video(healthy)
 
     def _setup_background_video(self, dependencies_ok=True):
-        """Create a dark looping background video layer behind all UI widgets."""
+        # only setup video if checks passed
         if not self._video_requested:
             return
 
@@ -1093,12 +1167,13 @@ class GameApp(tk.Tk):
             self._stop_background_video()
 
     def _video_dependencies_healthy(self):
-        """Probe video imports in a subprocess so native crashes cannot kill the UI process."""
+        # subprocess check protects main process from native library crashes
         probe_cmd = [
             sys.executable,
             "-c",
             "import cv2; from PIL import Image, ImageTk; print('ok')",
         ]
+        # cv2 can sometimes crash at import level, subprocess keeps main game safe
         try:
             result = subprocess.run(
                 probe_cmd,
@@ -1124,29 +1199,32 @@ class GameApp(tk.Tk):
         return True
 
     def _setup_background_video_impl(self):
-        """Internal background video setup implementation."""
-        self._video_label = tk.Label(self, bg="#000000", bd=0, highlightthickness=0)
-        self._video_label.place(relx=0, rely=0, relwidth=1, relheight=1)
-        self._video_label.lower()
-
+        # setup video frames inside the canvas, not as a seperate window
         if not self._video_path.exists():
+            self.output_queue.put(
+                f"\nVideo background disabled: file not found:\n{self._video_path}\n"
+            )
             return
 
         try:
             cv2_mod = importlib.import_module("cv2")
             pil_image = importlib.import_module("PIL.Image")
             pil_imagetk = importlib.import_module("PIL.ImageTk")
-        except Exception:
+        except Exception as exc:
             self.output_queue.put(
-                "\nVideo background disabled: install pillow and opencv-python-headless to enable it. "
-                "Set UI_BG_VIDEO=0 to disable this warning.\n"
+                f"\nVideo background disabled: missing dependency: {exc}\n"
+                "Install with: pip install pillow opencv-python\n"
             )
             return
 
+        # OpenCV reads the mp4 frame by frame and later PIL converts it for tkinter
         capture = cv2_mod.VideoCapture(str(self._video_path))
+
         if not capture.isOpened():
             capture.release()
-            self.output_queue.put("\nVideo background disabled: unable to open background video file.\n")
+            self.output_queue.put(
+                f"\nVideo background disabled: OpenCV could not open:\n{self._video_path}\n"
+            )
             return
 
         self._video_cv2 = cv2_mod
@@ -1154,10 +1232,64 @@ class GameApp(tk.Tk):
         self._video_image_tk = pil_imagetk
         self._video_capture = capture
         self._video_enabled = True
-        self.after(80, self._render_video_frame)
+
+        self.output_queue.put("\nVideo background ready.\n")
+        self.after(50, self._render_video_frame)
+
+    def _on_root_configure_video(self, _event=None):
+        # debounce resize events for the older video window mode
+        if not self._video_requested or not self._video_enabled:
+            return
+        if self._video_geometry_sync_pending:
+            return
+        self._video_geometry_sync_pending = True
+        self.after(15, self._sync_video_window_geometry)
+
+    def _sync_video_window_geometry(self):
+        # keep helper video window same size as root when using that mode
+        self._video_geometry_sync_pending = False
+
+        if self._video_window is None:
+            return
+
+        try:
+            if not self._video_window.winfo_exists():
+                return
+        except tk.TclError:
+            return
+
+        try:
+            state = self.state()
+        except tk.TclError:
+            state = "normal"
+
+        if state in ("iconic", "withdrawn"):
+            try:
+                self._video_window.withdraw()
+            except tk.TclError:
+                pass
+            return
+
+        try:
+            self.update_idletasks()
+            x = self.winfo_rootx()
+            y = self.winfo_rooty()
+            w = self.winfo_width()
+            h = self.winfo_height()
+        except tk.TclError:
+            return
+
+        if w < 80 or h < 80:
+            return
+
+        try:
+            self._video_window.geometry(f"{w}x{h}+{x}+{y}")
+            self._place_video_behind_root()
+        except tk.TclError:
+            pass
 
     def _render_video_frame(self):
-        """Render one frame of the background video, darkened for readability."""
+        # draw one video frame behind terminal text, then schedule next frame
         if not self._video_enabled or self._video_capture is None:
             return
 
@@ -1168,8 +1300,9 @@ class GameApp(tk.Tk):
                 ok, frame = self._video_capture.read()
 
             if ok:
-                target_w = max(1, self.winfo_width())
-                target_h = max(1, self.winfo_height())
+                target_widget = self._video_window if self._video_window is not None else self
+                target_w = max(1, target_widget.winfo_width())
+                target_h = max(1, target_widget.winfo_height())
 
                 frame = self._video_cv2.resize(
                     frame,
@@ -1177,15 +1310,38 @@ class GameApp(tk.Tk):
                     interpolation=self._video_cv2.INTER_AREA,
                 )
 
+                # convert to gray so background looks more retro and not too noisy
                 gray = self._video_cv2.cvtColor(frame, self._video_cv2.COLOR_BGR2GRAY)
                 frame = self._video_cv2.cvtColor(gray, self._video_cv2.COLOR_GRAY2BGR)
+
+                blur_ksize = getattr(self, "_video_blur_ksize", 0)
+                if blur_ksize and blur_ksize >= 3:
+                    frame = self._video_cv2.GaussianBlur(frame, (blur_ksize, blur_ksize), 0)
+
                 frame = self._video_cv2.convertScaleAbs(frame, alpha=self._video_darkness, beta=0)
                 rgb = self._video_cv2.cvtColor(frame, self._video_cv2.COLOR_BGR2RGB)
 
                 image = self._video_image_cls.fromarray(rgb)
                 self._video_photo = self._video_image_tk.PhotoImage(image=image)
-                self._video_label.configure(image=self._video_photo)
-                self._video_label.lower()
+
+                if self._video_canvas_image_id is None:
+                    # first frame creates the canvas image, next frames only replace image data
+                    self._video_canvas_image_id = self.log.create_image(
+                        0,
+                        0,
+                        anchor="nw",
+                        image=self._video_photo,
+                        tags=(self._video_bg_tag,),
+                    )
+                else:
+                    self.log.itemconfig(
+                        self._video_canvas_image_id,
+                        image=self._video_photo,
+                    )
+
+                self.log.tag_lower(self._video_bg_tag)
+                self.log.tag_raise(self._terminal_text_tag)
+
         except Exception:
             self._video_enabled = False
             return
@@ -1193,7 +1349,7 @@ class GameApp(tk.Tk):
         self._video_after_id = self.after(self._video_frame_interval_ms, self._render_video_frame)
 
     def _stop_background_video(self):
-        """Stop frame loop and release media resources."""
+        # cleanup video resources before closing app
         self._video_enabled = False
         self._video_preflight_pending = False
 
@@ -1211,49 +1367,86 @@ class GameApp(tk.Tk):
                 pass
             self._video_capture = None
 
+        self._video_canvas_image_id = None
+
     def _setup_ui(self):
-        """Build minimal retro UI."""
-        # Story log (green-on-black, monospace)
-        mono_font = tkFont.Font(family="Monospace", size=11)
-        self.log = scrolledtext.ScrolledText(
+        # main terminal uses canvas so video can sit under text
+        self._terminal_font = tkFont.Font(family="Monospace", size=11)
+        self._terminal_line_height = self._terminal_font.metrics("linespace") + 3
+        self._terminal_lines = [("", None)]
+        self._terminal_text_items = []
+        self._terminal_margin = 10
+        self._video_canvas_image_id = None
+
+        self.log = tk.Canvas(
             self,
             bg="#000000",
-            fg="#00ff00",
-            font=mono_font,
-            wrap=tk.WORD,
-            state=tk.DISABLED,
+            highlightthickness=0,
+            bd=0,
         )
+        # canvas acts like a fake terminal, because ScrolledText cant have video behind it
         self.log.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
 
-        # Configure text tags for styling
-        self.log.tag_config("prompt", foreground="#ffff00")  # Yellow for user input
-        self.log.tag_config("system", foreground="#00ffff")  # Cyan for system messages
+        self._terminal_font = tkFont.Font(family="Monospace", size=11)
+        self._terminal_line_height = self._terminal_font.metrics("linespace") + 3
+        self._terminal_lines = [("", None)]
+        self._terminal_text_items = []
+        self._terminal_margin = 10
 
-        # Input frame (black bg to match)
+        self._video_canvas_image_id = None
+        self._terminal_text_tag = "terminal_text"
+        self._video_bg_tag = "video_bg"
+        # tags make z-order easy: video goes down and text comes up
+        self.log.bind("<Configure>", lambda _e: self._redraw_terminal_text())
+
+        # bottom input box where player types action number or text
         input_frame = tk.Frame(self, bg="#000000")
         input_frame.pack(fill=tk.X, padx=2, pady=2)
 
-        tk.Label(input_frame, text="> ", bg="#000000", fg="#00ff00", font=mono_font).pack(
-            side=tk.LEFT
-        )
+        tk.Label(
+            input_frame,
+            text="> ",
+            bg="#000000",
+            fg="#00ff00",
+            font=self._terminal_font,
+        ).pack(side=tk.LEFT)
+
         self.input_field = tk.Entry(
-            input_frame, bg="#000000", fg="#00ff00", font=mono_font, insertbackground="#00ff00"
+            input_frame,
+            bg="#000000",
+            fg="#00ff00",
+            font=self._terminal_font,
+            insertbackground="#00ff00",
         )
         self.input_field.pack(fill=tk.X, side=tk.LEFT, padx=0, expand=True)
         self.input_field.bind("<Return>", lambda e: self._submit_input())
 
-        # Button frame (minimal)
+        # small controls, keeping them ugly-retro on purpose
         button_frame = tk.Frame(self, bg="#000000")
         button_frame.pack(fill=tk.X, padx=2, pady=2)
 
         tk.Button(
-            button_frame, text="[N]ew Game", command=self._new_game, bg="#1a1a1a", fg="#00ff00", 
-            font=("Monospace", 9), relief=tk.FLAT, padx=3, pady=1
+            button_frame,
+            text="[N]ew Game",
+            command=self._new_game,
+            bg="#1a1a1a",
+            fg="#00ff00",
+            font=("Monospace", 9),
+            relief=tk.FLAT,
+            padx=3,
+            pady=1,
         ).pack(side=tk.LEFT, padx=2)
 
         tk.Button(
-            button_frame, text="[Q]uit", command=self._quit_game, bg="#1a1a1a", fg="#00ff00",
-            font=("Monospace", 9), relief=tk.FLAT, padx=3, pady=1
+            button_frame,
+            text="[Q]uit",
+            command=self._quit_game,
+            bg="#1a1a1a",
+            fg="#00ff00",
+            font=("Monospace", 9),
+            relief=tk.FLAT,
+            padx=3,
+            pady=1,
         ).pack(side=tk.LEFT, padx=2)
 
         self.tts_button = tk.Button(
@@ -1269,6 +1462,7 @@ class GameApp(tk.Tk):
         )
         self.tts_button.pack(side=tk.LEFT, padx=2)
 
+        # LLM helper controls for Ollama narrator
         llm_frame = tk.Frame(self, bg="#000000")
         llm_frame.pack(fill=tk.X, padx=2, pady=2)
 
@@ -1311,7 +1505,7 @@ class GameApp(tk.Tk):
 
         tk.Button(
             llm_frame,
-            text=f"Download Model",
+            text="Download Model",
             command=self._pull_ollama_model,
             bg="#1a1a1a",
             fg="#00ff00",
@@ -1321,7 +1515,10 @@ class GameApp(tk.Tk):
             pady=1,
         ).pack(side=tk.LEFT, padx=2)
 
-        self.llm_status_var = tk.StringVar(value="LLM: Off" if not self.llm_enabled else "LLM: Checking...")
+        self.llm_status_var = tk.StringVar(
+            value="LLM: Off" if not self.llm_enabled else "LLM: Checking..."
+        )
+
         tk.Label(
             llm_frame,
             textvariable=self.llm_status_var,
@@ -1330,36 +1527,141 @@ class GameApp(tk.Tk):
             font=("Monospace", 9),
         ).pack(side=tk.LEFT, padx=6)
 
-        # Bind keyboard shortcuts
+        # keyboard shortcuts for faster testing
         self.bind("n", lambda e: self._new_game() if self.input_state in ["IDLE", "GAME_OVER"] else None)
         self.bind("q", lambda e: self._quit_game())
         self.bind("<Control-t>", lambda e: self._toggle_tts())
         self.bind("<Control-T>", lambda e: self._toggle_tts())
 
+    def _color_for_tag(self, tag):
+        # colors by message type, default is normal terminal green
+        if tag == "prompt":
+            return "#ffff00"
+        if tag == "system":
+            return "#00ffff"
+        return "#00ff00"
+
+    def _clear_terminal(self):
+        # clear only terminal text, video background can stay alive
+        self._terminal_lines = [("", None)]
+
+        try:
+            self.log.delete(self._terminal_text_tag)
+        except tk.TclError:
+            pass
+
+        self._terminal_text_items.clear()
+        self._redraw_terminal_text()
+
     def _append_text(self, text, tag=None):
-        """Append text to story log from the Tk thread."""
-        self.log.config(state=tk.NORMAL)
-        if tag:
-            self.log.insert(tk.END, text, tag)
-        else:
-            self.log.insert(tk.END, text)
-        self.log.see(tk.END)
-        self.log.config(state=tk.DISABLED)
+        # add text to our fake terminal buffer char by char
+        if not hasattr(self, "_terminal_lines"):
+            return
+
+        for char in text:
+            if char == "\n":
+                self._terminal_lines.append(("", tag))
+            else:
+                current_text, current_tag = self._terminal_lines[-1]
+
+                if current_text == "":
+                    current_tag = tag
+
+                self._terminal_lines[-1] = (current_text + char, current_tag)
+
+        if len(self._terminal_lines) > 500:
+            self._terminal_lines = self._terminal_lines[-500:]
+
+        self._redraw_terminal_text()
+
+    def _redraw_terminal_text(self):
+        # redraw visible wrapped lines on top of video every time text changes
+        if not hasattr(self, "log"):
+            return
+
+        try:
+            self.log.delete(self._terminal_text_tag)
+            self._terminal_text_items.clear()
+
+            width = max(100, self.log.winfo_width() - self._terminal_margin * 2)
+            height = max(100, self.log.winfo_height() - self._terminal_margin * 2)
+
+            char_width = max(1, self._terminal_font.measure("M"))
+            max_chars = max(10, width // char_width)
+
+            visual_lines = []
+
+            # convert logical lines into wrapped screen lines based on current canvas width
+            for raw_line, tag in self._terminal_lines:
+                if raw_line == "":
+                    visual_lines.append(("", tag))
+                    continue
+
+                wrapped = textwrap.wrap(
+                    raw_line,
+                    width=max_chars,
+                    replace_whitespace=False,
+                    drop_whitespace=False,
+                )
+
+                for part in wrapped:
+                    visual_lines.append((part, tag))
+
+            max_visible = max(1, height // self._terminal_line_height)
+            # only draw last lines, like terminal scrollback staying at bottom
+            visible_lines = visual_lines[-max_visible:]
+
+            y = self._terminal_margin
+
+            for line, tag in visible_lines:
+                color = self._color_for_tag(tag)
+
+                # black shadow helps readability when the video background is bright
+                shadow = self.log.create_text(
+                    self._terminal_margin + 2,
+                    y + 2,
+                    anchor="nw",
+                    text=line,
+                    fill="#000000",
+                    font=self._terminal_font,
+                    tags=(self._terminal_text_tag,),
+                )
+
+                item = self.log.create_text(
+                    self._terminal_margin,
+                    y,
+                    anchor="nw",
+                    text=line,
+                    fill=color,
+                    font=self._terminal_font,
+                    tags=(self._terminal_text_tag,),
+                )
+
+                self._terminal_text_items.extend([shadow, item])
+                y += self._terminal_line_height
+
+            if self._video_canvas_image_id is not None:
+                self.log.tag_lower(self._video_bg_tag)
+
+            self.log.tag_raise(self._terminal_text_tag)
+
+        except tk.TclError:
+            pass
 
     def _drain_output_queue(self):
-        """Move queued stdout text into the typewriter queue."""
+        # move thread output into typewriter queue for smooth terminal effect
         while True:
             try:
                 chunk = self.output_queue.get_nowait()
             except queue.Empty:
                 break
-            # Queue for typewriter effect
+            # split into chars here so _typewriter_loop can control the speed
             for char in chunk:
                 self.typewriter_queue.put(char)
         self.after(40, self._drain_output_queue)
 
     def _typewriter_loop(self):
-        """Very fast typewriter effect - add one character at a time to the log."""
+        # prints few chars at a time, fast enough but still looks alive
         chunk = []
         for _ in range(8):
             try:
@@ -1373,23 +1675,21 @@ class GameApp(tk.Tk):
         self.after(5, self._typewriter_loop)
 
     def _new_game(self):
-        """Start a new game in a background thread."""
+        # reset screen and start fresh game in background thread
         if self.input_state == "PROCESSING":
             return
-            
-        self.log.config(state=tk.NORMAL)
-        self.log.delete(1.0, tk.END)
-        self.log.config(state=tk.DISABLED)
+
+        self._clear_terminal()
         self.input_field.delete(0, tk.END)
 
         self._append_text("Initializing game...\n", "system")
         self.input_state = "PROCESSING"
-        
+
         threading.Thread(target=self._run_new_game_thread, daemon=True).start()
-        self.input_field.focus()
+        self.input_field.focus_set()
 
     def _run_new_game_thread(self):
-        """Background thread for creating a new game."""
+        # engine work is seperate so tkinter doesnt become unresponsive
         try:
             if self.engine is None:
                 self.engine = GameEngine()
@@ -1400,11 +1700,12 @@ class GameApp(tk.Tk):
             self.input_state = "GAME_OVER"
 
     def _submit_input(self):
-        """Handle user hitting enter based on the current state."""
+        # handles Enter key based on what the game is asking for
+        # strip removes random spaces so typing ' 1 ' still works
         user_input = self.input_field.get().strip()
         if not user_input or self.input_state not in ["WAITING_FOR_ACTION", "WAITING_FOR_TEXT"]:
             return
-            
+
         self._append_text(f"> {user_input}\n", "prompt")
         self.input_field.delete(0, tk.END)
 
@@ -1412,45 +1713,44 @@ class GameApp(tk.Tk):
             if not user_input.isdigit():
                 self.output_queue.put("Please enter a valid action number.\n")
                 return
-                
+
             choice_num = int(user_input)
             actions = self.current_packet.get("actions", [])
-            
+
             if not (1 <= choice_num <= len(actions)):
                 self.output_queue.put("That number is not one of the available actions.\n")
                 return
-                
+
             action_index = choice_num - 1
             chosen_action = actions[action_index]
-            
-            # Check if this action requires a second step
+
+            # some actions need extra text, like entering a name or answer
             if chosen_action.get("input_required"):
                 self.pending_action_index = action_index
                 self.input_state = "WAITING_FOR_TEXT"
                 hint = chosen_action.get("input_hint", "Enter input:")
                 self.output_queue.put(f"\n{hint}\n")
                 return
-                
-            # Otherwise, submit immediately
+
             self.input_state = "PROCESSING"
             self.output_queue.put("\nProcessing...\n")
             threading.Thread(
-                target=self._run_submit_choice_thread, 
-                args=(action_index, None), 
-                daemon=True
+                target=self._run_submit_choice_thread,
+                args=(action_index, None),
+                daemon=True,
             ).start()
 
         elif self.input_state == "WAITING_FOR_TEXT":
             self.input_state = "PROCESSING"
             self.output_queue.put("\nProcessing...\n")
             threading.Thread(
-                target=self._run_submit_choice_thread, 
-                args=(self.pending_action_index, user_input), 
-                daemon=True
+                target=self._run_submit_choice_thread,
+                args=(self.pending_action_index, user_input),
+                daemon=True,
             ).start()
 
     def _run_submit_choice_thread(self, action_index, user_input):
-        """Background thread for executing an action."""
+        # send selected action to engine outside the UI thread
         try:
             packet = self.engine.submit_choice(action_index, user_input=user_input)
             self.after(0, self._handle_engine_response, packet)
@@ -1459,43 +1759,42 @@ class GameApp(tk.Tk):
             self.input_state = "GAME_OVER"
 
     def _handle_engine_response(self, packet):
-        """Receives packet from background thread safely in the main thread."""
+        # engine packet comes back here and UI decides next state
         self.current_packet = packet
         display_text = self._format_packet(packet)
         self.output_queue.put(display_text)
         self._queue_tts(packet.get("narration", ""))
-        
+
+        # decide if the game should still accept choices after this packet
         if packet.get("game_over") or packet.get("game_complete") or packet.get("health", 0) <= 0:
             self.input_state = "GAME_OVER"
         else:
             self.input_state = "WAITING_FOR_ACTION"
 
     def _format_packet(self, packet):
-        """Formats the game state and narration into Zork-like text."""
-        lines = ["\n" + "-" * 50]
-        
-        # Status Header
+        # convert engine data into old-school terminal text
+        lines = ["" + "-" * 50]
+        # this list is joined at the end, easier than making one huge string
+
         scene_id = packet.get("scene_id", "Unknown")
         health = packet.get("health", 0)
         inv = packet.get("inventory", [])
         inv_str = ", ".join(inv) if inv else "empty"
-        
+
         lines.append(f"Scene: {scene_id} | Health: {health}")
         lines.append(f"Inventory: {inv_str}")
         lines.append("-" * 50 + "\n")
-        
-        # Main Narration
+
         if packet.get("narration"):
             lines.append(packet["narration"] + "\n")
 
-        # Short status updates (damage/heal context)
         for status_line in packet.get("status_lines", []):
             lines.append(status_line)
 
         if packet.get("status_lines"):
             lines.append("")
-            
-        # Win/Loss Evaluation
+
+        # end screens are formatted here instead of inside engine so UI controls the look
         if packet.get("health", 0) <= 0 or packet.get("game_over"):
             lines.append("\nGAME OVER")
             lines.append("=" * 50 + "\n")
@@ -1504,7 +1803,6 @@ class GameApp(tk.Tk):
             lines.append("Snow White has been rescued.")
             lines.append("=" * 50 + "\n")
         else:
-            # Action Listing
             actions = packet.get("actions", [])
             if actions:
                 lines.append("Actions:")
@@ -1512,11 +1810,11 @@ class GameApp(tk.Tk):
                     lines.append(f"{i}. {action.get('label', 'Unknown Action')}")
             else:
                 lines.append("No available actions. You are stuck.")
-                
+
         return "\n".join(lines) + "\n"
 
     def _quit_game(self):
-        """Quit the application."""
+        # stop bg workers and close the window cleanly
         self._stop_background_video()
         self.tts_stop_event.set()
         self.tts_queue.put(None)
@@ -1524,7 +1822,7 @@ class GameApp(tk.Tk):
 
 
 def run():
-    """Launch the game."""
+    # small launcher function so main_ui.py can import it
     app = GameApp()
     app.mainloop()
 

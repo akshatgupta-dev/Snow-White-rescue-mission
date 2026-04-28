@@ -1,0 +1,20 @@
+
+GUI launch unavailable.
+Reason: display preflight failed to run (Command '['/home/akshatgg/applied_programming/second_course/the-adventures-of-cinderella/.venv/bin/python3', '-c', 'import tkinter as tk\nr = tk.Tk()\nr.overrideredirect(True)\nr.geometry(\'240x120+20+20\')\nr.update_idletasks()\nr.update()\nprint(f"{r.state()}|{int(bool(r.winfo_ismapped()))}|{int(bool(r.winfo_viewable()))}")\nr.destroy()\n']' timed out after 5 seconds)
+Starting terminal game fallback...
+
+
+----------------------------------------
+Scene: library
+Health: 100
+Inventory: empty
+----------------------------------------
+
+Cinderella arrives at the SAMK library late at night. The library is silent, dusty, and dimly lit. A magical holographic guardian blocks the entrance. The guardian will only allow passage if Cinderella proves she belongs here. A glowing map of Pori waits somewhere beyond the test.
+
+Actions:
+1. Study the guardian
+2. Look around the library
+3. Answer the guardian's question
+
+Choose an action number: 

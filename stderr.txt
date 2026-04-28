@@ -1,0 +1,6 @@
+object address  : 0x7fcb7da53bd0
+object refcount : 3
+object type     : 0x1174dee0
+object type name: TclError
+object repr     : TclError('couldn\'t connect to display ":0"')
+lost sys.stderr
