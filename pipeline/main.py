@@ -1,4 +1,4 @@
-from src.game_foundation import create_new_game
+from pipeline.game_foundation import create_new_game
 
 
 def main():
