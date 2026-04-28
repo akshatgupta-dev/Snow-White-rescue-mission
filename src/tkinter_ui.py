@@ -158,7 +158,7 @@ class GameApp(tk.Tk):
 
         # build the UI first, then start the slower stuff after tkinter is alive
         self._setup_ui()
-        self.after(500, self._debug_cursor_test)
+        # self.after(500, self._debug_cursor_test)
         self.llm_enabled = False
 
         # after() is used here because tkinter should do UI changes inside its own loop
@@ -1123,7 +1123,7 @@ class GameApp(tk.Tk):
 
         for segment in segments:
             self.tts_queue.put(segment)
-    def _is_frozen_app():
+    def _is_frozen_app(self):
         return bool(getattr(sys, "frozen", False))
     
     def _toggle_tts(self):
@@ -1157,7 +1157,7 @@ class GameApp(tk.Tk):
 
             if cursor_file and Path(cursor_file).exists():
                 if mask_file and Path(mask_file).exists():
-                    cursor_candidates.append(f"@{cursor_file} @{mask_file} {fg} {bg}")
+                    cursor_candidates.append(f"@{cursor_file} {mask_file} {fg} {bg}")
 
                 cursor_candidates.append(f"@{cursor_file} {fg} {bg}")
                 cursor_candidates.append(f"@{cursor_file}")
@@ -1234,7 +1234,7 @@ class GameApp(tk.Tk):
     def _video_dependencies_healthy(self):
         # In a PyInstaller app, sys.executable points to the .exe itself.
         # Do not run [sys.executable, "-c", ...] because it can relaunch the app repeatedly.
-        if _is_frozen_app():
+        if self._is_frozen_app():
             try:
                 importlib.import_module("cv2")
                 importlib.import_module("PIL.Image")
@@ -1420,7 +1420,10 @@ class GameApp(tk.Tk):
                 self.log.tag_lower(self._video_bg_tag)
                 self.log.tag_raise(self._terminal_text_tag)
 
-        except Exception:
+        except Exception as exc:
+            self.output_queue.put(
+                f"\nVideo background crashed: {type(exc).__name__}: {exc}\n"
+            )
             self._video_enabled = False
             return
 
