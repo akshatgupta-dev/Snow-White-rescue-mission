@@ -2,7 +2,7 @@
 Tkinter GUI text-adventure game in Python: Cinderella with a lightsaber rescues Snow White (save/load + inventory + puzzles)
 
 ## Demo
-![Project Demo](/home/akshatgg/applied_programming/second_course/the-adventures-of-cinderella/src/assets/demo.gif)
+![Project Demo](src/assets/demo.gif)
 
 
 ## Run
