@@ -1,6 +1,10 @@
 # Snow-White-rescue-mission
 Tkinter GUI text-adventure game in Python: Cinderella with a lightsaber rescues Snow White (save/load + inventory + puzzles)
 
+## Demo
+![Project Demo](src/assets/demo.gif)
+
+
 ## Run
 
 - GUI (preferred): `python3 main_ui.py`

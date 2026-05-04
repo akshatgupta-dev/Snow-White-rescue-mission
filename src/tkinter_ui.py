@@ -432,11 +432,11 @@ class GameApp(tk.Tk):
         if self._cursor_selector_keys_bound:
             return
 
-        self.bind_all("<Left>", lambda e: self._cursor_prev())
-        self.bind_all("<Right>", lambda e: self._cursor_next())
-        self.bind_all("<Return>", lambda e: self._select_cursor_and_start())
-        self.bind_all("<KP_Enter>", lambda e: self._select_cursor_and_start())
-        self.bind_all("<Escape>", lambda e: self._select_cursor_and_start())
+        self.bind_all("<Left>", self._cursor_prev)
+        self.bind_all("<Right>", self._cursor_next)
+        self.bind_all("<Return>", self._select_cursor_and_start)
+        self.bind_all("<KP_Enter>", self._select_cursor_and_start)
+        self.bind_all("<Escape>", self._select_cursor_and_start)
         self._cursor_selector_keys_bound = True
 
     def _unbind_cursor_selector_keys(self):
@@ -572,22 +572,44 @@ class GameApp(tk.Tk):
         self.cursor_index_var.set(f"{self.cursor_index + 1} / {len(self.cursor_options)}")
         self._apply_cursor_option(option)
 
-    def _cursor_next(self):
+
+    def _cursor_next(self, event=None):
         self.cursor_index = (self.cursor_index + 1) % len(self.cursor_options)
         self._refresh_cursor_selector()
 
-    def _cursor_prev(self):
+    def _cursor_prev(self, event=None):
         self.cursor_index = (self.cursor_index - 1) % len(self.cursor_options)
         self._refresh_cursor_selector()
 
-    def _select_cursor_and_start(self):
-        # after picking cursor, close overlay and start game
+    # def _select_cursor_and_start(self, event=None):
+    #     # after picking cursor, close overlay and start game
+    #     option = self.cursor_options[self.cursor_index]
+    #     self._apply_cursor_option(option)
+    #     self.output_queue.put(f"\nCursor selected: {option['name']}\n")
+    #     if hasattr(self, "cursor_overlay") and self.cursor_overlay.winfo_exists():
+    #         self._unbind_cursor_selector_keys()
+    #         self.cursor_overlay.destroy()
+    #     self.after(60, self._new_game)
+
+    def _select_cursor_and_start(self, event=None):
         option = self.cursor_options[self.cursor_index]
-        self._apply_cursor_option(option)
-        self.output_queue.put(f"\nCursor selected: {option['name']}\n")
+
+        ok = self._apply_cursor_option(option)
+
+        if ok:
+            self.output_queue.put(f"\nCursor selected: {option['name']}\n")
+        else:
+            self.output_queue.put(f"\nCursor failed: {option['name']}. Using fallback.\n")
+
+        selected_cursor = getattr(self, "_current_cursor_spec", "arrow")
+
         if hasattr(self, "cursor_overlay") and self.cursor_overlay.winfo_exists():
             self._unbind_cursor_selector_keys()
             self.cursor_overlay.destroy()
+
+        # Reapply after destroying overlay and after game UI redraws.
+        self.after(50, lambda: self._set_cursor_recursive(self, selected_cursor))
+        self.after(200, lambda: self._set_cursor_recursive(self, selected_cursor))
         self.after(60, self._new_game)
 
     def _report_llm_status(self):
@@ -1176,6 +1198,7 @@ class GameApp(tk.Tk):
         self.configure(cursor="arrow")
         self.option_add("*cursor", "arrow")
         self._set_cursor_recursive(self, "arrow")
+
 
     def _set_cursor_recursive(self, widget, cursor_spec):
         # apply cursor to every child widget, or some buttons keep old cursor
