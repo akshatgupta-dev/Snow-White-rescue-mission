@@ -6,3 +6,44 @@ __pycache__/
 pipeline/bear_bridge.py
 pipeline/cafeteria.py
 pipeline/test_game.py
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Build / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+*.spec
+
+# Logs and run outputs
+*.log
+output.txt
+run_output.txt
+stdout.txt
+stderr.txt
+tatus
+
+# Test / temporary scripts
+cursor_test.py
+test_tk.py
+windows_commands.txt
+
+# IDE / editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
